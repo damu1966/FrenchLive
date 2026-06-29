@@ -201,6 +201,7 @@ struct TranscriptRowView: View {
 struct LiveRowView: View {
     let text: String
     @State private var showCursor = true
+    @State private var cursorTimer: Timer? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -213,9 +214,13 @@ struct LiveRowView: View {
                 .foregroundStyle(.primary.opacity(0.5))
         }
         .onAppear {
-            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
                 showCursor.toggle()
             }
+        }
+        .onDisappear {
+            cursorTimer?.invalidate()
+            cursorTimer = nil
         }
     }
 }

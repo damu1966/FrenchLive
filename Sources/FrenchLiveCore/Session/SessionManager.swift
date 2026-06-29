@@ -60,9 +60,14 @@ final class SessionManager: ObservableObject {
         systemRecognizer.stop()
 
         if let startDate = sessionStartDate {
-            try? TranscriptFileWriter().write(store.entries, startDate: startDate)
+            do {
+                try TranscriptFileWriter().write(store.entries, startDate: startDate)
+            } catch {
+                print("FrenchLive: auto-save failed: \(error)")
+            }
         }
         sessionStartDate = nil
+        store.liveText = ""
         state = .idle
     }
 
@@ -75,30 +80,32 @@ final class SessionManager: ObservableObject {
 
     private func wireRecognizers() {
         micRecognizer.onPartialResult = { [weak self] text in
-            Task { @MainActor in self?.store.liveText = text }
+            Task { @MainActor in self?.store.liveText = "[mic] \(text)" }
         }
         micRecognizer.onFinalResult = { [weak self] text in
             guard let self else { return }
+            let capturedAt = Date()
             Task {
                 let english = await self.translator.translate(text)
                 await MainActor.run {
                     self.store.append(TranscriptEntry(
-                        timestamp: Date(), source: .mic, french: text, english: english
+                        timestamp: capturedAt, source: .mic, french: text, english: english
                     ))
                 }
             }
         }
 
         systemRecognizer.onPartialResult = { [weak self] text in
-            Task { @MainActor in self?.store.liveText = text }
+            Task { @MainActor in self?.store.liveText = "[sys] \(text)" }
         }
         systemRecognizer.onFinalResult = { [weak self] text in
             guard let self else { return }
+            let capturedAt = Date()
             Task {
                 let english = await self.translator.translate(text)
                 await MainActor.run {
                     self.store.append(TranscriptEntry(
-                        timestamp: Date(), source: .system, french: text, english: english
+                        timestamp: capturedAt, source: .system, french: text, english: english
                     ))
                 }
             }
