@@ -10,6 +10,7 @@ struct TranscriptFileWriter {
         self.folderURL = folderURL
     }
 
+    @discardableResult
     func write(_ entries: [TranscriptEntry], startDate: Date) throws -> URL {
         let fm = FileManager.default
         if !fm.fileExists(atPath: folderURL.path) {
