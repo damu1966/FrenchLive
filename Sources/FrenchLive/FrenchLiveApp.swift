@@ -1,8 +1,16 @@
 import SwiftUI
+import FrenchLiveCore
 
 @main
 struct FrenchLiveApp: App {
     var body: some Scene {
-        WindowGroup { Text("FrenchLive loading…") }
+        WindowGroup {
+            ContentView()
+        }
+        .windowStyle(.titleBar)
+        .windowResizability(.contentMinSize)
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+        }
     }
 }
