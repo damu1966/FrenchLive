@@ -20,6 +20,8 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Speech"),
                 .linkedFramework("ScreenCaptureKit"),
+                .linkedFramework("Translation"),
+                .linkedFramework("_Translation_SwiftUI"),
             ]
         ),
         .testTarget(
