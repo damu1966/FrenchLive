@@ -1,11 +1,11 @@
 import Foundation
 
-enum AudioSource {
+enum AudioSource: Equatable {
     case mic
     case system
 }
 
-struct TranscriptEntry: Identifiable {
+struct TranscriptEntry: Identifiable, Equatable {
     let id = UUID()
     let timestamp: Date
     let source: AudioSource

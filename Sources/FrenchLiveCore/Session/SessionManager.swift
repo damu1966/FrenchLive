@@ -143,8 +143,10 @@ final class SessionManager: ObservableObject {
     // MARK: - Private
 
     private func wireRecognizers() {
+        // DispatchQueue.main.async is lighter than Task { @MainActor } —
+        // no heap allocation for a Task object on every partial result (5-10/sec).
         micRecognizer.onPartialResult = { [weak self] text in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 self?.store.liveText = text
                 self?.store.liveSource = .mic
             }
@@ -155,19 +157,20 @@ final class SessionManager: ObservableObject {
         micRecognizer.onFinalResult = { [weak self] text in
             guard let self else { return }
             let capturedAt = Date()
-            let srcLang = self.settings.sourceLanguage
-            let tgtLang = self.settings.targetLanguage
             Task {
-                // Fix A: append immediately so text appears without waiting for translation.
                 let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, english: "")
                 await MainActor.run { self.store.append(entry) }
+                // Read @MainActor settings on the main actor where they live.
+                let (srcLang, tgtLang) = await MainActor.run {
+                    (self.settings.sourceLanguage, self.settings.targetLanguage)
+                }
                 let english = await self.translator.translate(text, from: srcLang, to: tgtLang)
                 await MainActor.run { self.store.updateEnglish(for: entry.id, english: english) }
             }
         }
 
         systemRecognizer.onPartialResult = { [weak self] text in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 self?.store.liveText = text
                 self?.store.liveSource = .system
             }
@@ -178,12 +181,12 @@ final class SessionManager: ObservableObject {
         systemRecognizer.onFinalResult = { [weak self] text in
             guard let self else { return }
             let capturedAt = Date()
-            let srcLang = self.settings.sourceLanguage
-            let tgtLang = self.settings.targetLanguage
             Task {
-                // Fix A: append immediately so text appears without waiting for translation.
                 let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, english: "")
                 await MainActor.run { self.store.append(entry) }
+                let (srcLang, tgtLang) = await MainActor.run {
+                    (self.settings.sourceLanguage, self.settings.targetLanguage)
+                }
                 let english = await self.translator.translate(text, from: srcLang, to: tgtLang)
                 await MainActor.run { self.store.updateEnglish(for: entry.id, english: english) }
             }

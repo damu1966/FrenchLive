@@ -8,12 +8,14 @@ final class SpeechRecognizer {
     private var task: SFSpeechRecognitionTask?
     private var isRunning = false
 
-    // Incremented on every new task. Silence-timer closures capture this
-    // value; ones from a previous task become no-ops (Fix C).
+    // Incremented each time a new task starts. Silence-timer closures capture
+    // this value so stale ones (from a previous task) become no-ops.
     private var sessionID = 0
 
+    // Silence detection runs on a dedicated queue — keeps it off the main thread.
+    private let silenceQueue = DispatchQueue(label: "com.frenchlive.silence", qos: .userInitiated)
     private var silenceWorkItem: DispatchWorkItem?
-    private static let silenceTimeout: TimeInterval = 0.8  // Fix D: was 1.5
+    private static let silenceTimeout: TimeInterval = 0.8
 
     var onPartialResult: ((String) -> Void)?
     var onFinalResult: ((String) -> Void)?
@@ -22,7 +24,6 @@ final class SpeechRecognizer {
     func start(locale: Locale) {
         guard !isRunning else { return }
 
-        // Fix B: only create the recognizer once; reuse it across segments.
         if recognizer == nil {
             guard let rec = SFSpeechRecognizer(locale: locale) else {
                 print("FrenchLive: SpeechRecognizer unavailable for locale \(locale.identifier)")
@@ -65,7 +66,17 @@ final class SpeechRecognizer {
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         req.requiresOnDeviceRecognition = false
-        request = req
+
+        // Swap to the new request BEFORE ending the old one so the audio
+        // tap never sees a nil request between segments (zero-gap restart).
+        let oldRequest = self.request
+        let oldTask = self.task
+        self.request = req
+        self.task = nil
+
+        // Signal the old segment to finalise now that new request is live.
+        oldTask?.cancel()
+        oldRequest?.endAudio()
 
         print("FrenchLive: starting recognition task (session \(currentID))")
         task = rec.recognitionTask(with: req) { [weak self] result, error in
@@ -74,15 +85,9 @@ final class SpeechRecognizer {
 
             if let result = result {
                 let text = result.bestTranscription.formattedString
-                print("FrenchLive: result isFinal=\(result.isFinal) text='\(text)'")
                 if result.isFinal {
                     self.cancelSilenceTimer()
                     if !text.isEmpty { self.onFinalResult?(text) }
-                    // Fix B: only tear down request+task, keep the recognizer.
-                    self.task?.cancel()
-                    self.task = nil
-                    self.request?.endAudio()
-                    self.request = nil
                     if let rec = self.recognizer {
                         self.startTask(with: rec, locale: locale)
                     }
@@ -108,23 +113,20 @@ final class SpeechRecognizer {
     // MARK: - Silence detection
 
     private func scheduleSilenceEnd(sessionID: Int) {
-        DispatchQueue.main.async { [weak self] in
-            // Fix C: drop if a newer task has already started.
+        silenceQueue.async { [weak self] in
             guard let self, self.sessionID == sessionID else { return }
             self.silenceWorkItem?.cancel()
             let item = DispatchWorkItem { [weak self] in
                 guard let self, self.sessionID == sessionID else { return }
-                print("FrenchLive: silence detected — ending segment (session \(sessionID))")
                 self.request?.endAudio()
             }
             self.silenceWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + SpeechRecognizer.silenceTimeout,
-                                          execute: item)
+            self.silenceQueue.asyncAfter(deadline: .now() + SpeechRecognizer.silenceTimeout, execute: item)
         }
     }
 
     private func cancelSilenceTimer() {
-        DispatchQueue.main.async { [weak self] in
+        silenceQueue.async { [weak self] in
             self?.silenceWorkItem?.cancel()
             self?.silenceWorkItem = nil
         }

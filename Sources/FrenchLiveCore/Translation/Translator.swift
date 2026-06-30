@@ -6,8 +6,19 @@ import Translation
 #endif
 
 actor Translator {
-    // Stored as Any? because @available cannot annotate stored properties
     private var _session: Any?
+
+    // Reused across all calls — JSONDecoder allocation is not free.
+    private static let jsonDecoder = JSONDecoder()
+
+    // Short timeout: MyMemory is best-effort; show "[translation unavailable]"
+    // quickly rather than leaving the entry showing "…" for 60 seconds.
+    private static let urlSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 5
+        config.timeoutIntervalForResource = 10
+        return URLSession(configuration: config)
+    }()
 
     @available(macOS 15.0, *)
     func setSession(_ session: TranslationSession) {
@@ -39,8 +50,8 @@ actor Translator {
         else { return "[translation unavailable]" }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let decoded = try JSONDecoder().decode(MyMemoryResponse.self, from: data)
+            let (data, _) = try await Self.urlSession.data(from: url)
+            let decoded = try Self.jsonDecoder.decode(MyMemoryResponse.self, from: data)
             return decoded.responseData.translatedText
         } catch {
             return "[translation unavailable]"

@@ -96,8 +96,12 @@ public struct ContentView: View {
                     }
                 }
             }
-            .onChange(of: store.liveText) { _ in
-                withAnimation { proxy.scrollTo("live", anchor: .bottom) }
+            // Only scroll to live row when it first appears (liveText was empty
+            // and is now non-empty). Avoids 5-10 animations/second during speech.
+            .onChange(of: store.liveText.isEmpty) { isEmpty in
+                if !isEmpty {
+                    withAnimation { proxy.scrollTo("live", anchor: .bottom) }
+                }
             }
         }
     }
