@@ -77,7 +77,7 @@ public struct ContentView: View {
                             .id(entry.id)
                     }
                     if !store.liveText.isEmpty {
-                        LiveRowView(text: store.liveText)
+                        LiveRowView(text: store.liveText, source: store.liveSource)
                             .id("live")
                     }
                 }
@@ -232,6 +232,7 @@ struct TranscriptRowView: View {
 
 struct LiveRowView: View {
     let text: String
+    let source: AudioSource?
     @State private var showCursor = true
     @State private var cursorTimer: Timer? = nil
 
@@ -241,6 +242,8 @@ struct LiveRowView: View {
                 .font(.caption)
                 .foregroundStyle(.blue)
                 .frame(width: 38, alignment: .leading)
+            sourceIcon
+                .frame(width: 20, alignment: .center)
             Text(text + (showCursor ? "▌" : " "))
                 .font(.body)
                 .foregroundStyle(.primary.opacity(0.5))
@@ -253,6 +256,22 @@ struct LiveRowView: View {
         .onDisappear {
             cursorTimer?.invalidate()
             cursorTimer = nil
+        }
+    }
+
+    @ViewBuilder
+    private var sourceIcon: some View {
+        switch source {
+        case .mic:
+            Image(systemName: "mic.fill")
+                .font(.caption)
+                .foregroundStyle(.blue)
+        case .system:
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        case .none:
+            Color.clear
         }
     }
 }

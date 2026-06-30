@@ -86,6 +86,7 @@ final class SessionManager: ObservableObject {
         }
         sessionStartDate = nil
         store.liveText = ""
+        store.liveSource = nil
         state = .idle
     }
 
@@ -98,7 +99,10 @@ final class SessionManager: ObservableObject {
 
     private func wireRecognizers() {
         micRecognizer.onPartialResult = { [weak self] text in
-            Task { @MainActor in self?.store.liveText = "[mic] \(text)" }
+            Task { @MainActor in
+                self?.store.liveText = text
+                self?.store.liveSource = .mic
+            }
         }
         micRecognizer.onError = { error in
             print("FrenchLive: mic recognizer error: \(error)")
@@ -119,7 +123,10 @@ final class SessionManager: ObservableObject {
         }
 
         systemRecognizer.onPartialResult = { [weak self] text in
-            Task { @MainActor in self?.store.liveText = "[sys] \(text)" }
+            Task { @MainActor in
+                self?.store.liveText = text
+                self?.store.liveSource = .system
+            }
         }
         systemRecognizer.onError = { error in
             print("FrenchLive: system recognizer error: \(error)")
