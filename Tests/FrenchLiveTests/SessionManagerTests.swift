@@ -9,7 +9,8 @@ import Foundation
         await MainActor.run {
             let store = TranscriptStore()
             let translator = Translator()
-            let manager = SessionManager(store: store, translator: translator)
+            let settings = SettingsStore()
+            let manager = SessionManager(store: store, translator: translator, settings: settings)
             #expect(manager.state == .idle)
         }
     }
@@ -18,7 +19,8 @@ import Foundation
         await MainActor.run {
             let store = TranscriptStore()
             let translator = Translator()
-            let manager = SessionManager(store: store, translator: translator)
+            let settings = SettingsStore()
+            let manager = SessionManager(store: store, translator: translator, settings: settings)
             #expect(manager.selectedSource == .both)
         }
     }
@@ -27,7 +29,8 @@ import Foundation
         await MainActor.run {
             let store = TranscriptStore()
             let translator = Translator()
-            let manager = SessionManager(store: store, translator: translator)
+            let settings = SettingsStore()
+            let manager = SessionManager(store: store, translator: translator, settings: settings)
             #expect(manager.elapsedSeconds == 0)
         }
     }
@@ -36,7 +39,8 @@ import Foundation
         let manager: SessionManager = await MainActor.run {
             let store = TranscriptStore()
             let translator = Translator()
-            let m = SessionManager(store: store, translator: translator)
+            let settings = SettingsStore()
+            let m = SessionManager(store: store, translator: translator, settings: settings)
             m.testSetState(.recording)
             return m
         }
@@ -50,7 +54,8 @@ import Foundation
         let manager: SessionManager = await MainActor.run {
             let store = TranscriptStore()
             let translator = Translator()
-            return SessionManager(store: store, translator: translator)
+            let settings = SettingsStore()
+            return SessionManager(store: store, translator: translator, settings: settings)
         }
         #expect(await MainActor.run { manager.state } == .idle)
         await manager.stop()

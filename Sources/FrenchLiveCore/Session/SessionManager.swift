@@ -11,6 +11,7 @@ final class SessionManager: ObservableObject {
 
     let store: TranscriptStore
     let translator: Translator
+    let settings: SettingsStore
 
     private let micEngine = MicEngine()
     private let captureEngine = ScreenCaptureEngine()
@@ -18,10 +19,12 @@ final class SessionManager: ObservableObject {
     private let systemRecognizer = SpeechRecognizer()
     private var sessionStartDate: Date?
     private var timer: Timer?
+    private var autoSaveTimer: Timer?
 
-    init(store: TranscriptStore, translator: Translator) {
+    init(store: TranscriptStore, translator: Translator, settings: SettingsStore) {
         self.store = store
         self.translator = translator
+        self.settings = settings
         wireRecognizers()
     }
 
@@ -31,21 +34,33 @@ final class SessionManager: ObservableObject {
         state = .recording
         sessionStartDate = Date()
         startTimer()
+        startAutoSave()
+        print("FrenchLive: SessionManager start, source=\(selectedSource)")
+
+        let locale = Locale(identifier: settings.sourceLanguage)
 
         if selectedSource == .mic || selectedSource == .both {
             micEngine.onBuffer = { [weak self] buffer in
                 self?.micRecognizer.appendBuffer(buffer)
             }
-            try? micEngine.start()
-            micRecognizer.start()
+            do {
+                try micEngine.start()
+            } catch {
+                print("FrenchLive: MicEngine failed to start: \(error)")
+            }
+            micRecognizer.start(locale: locale)
         }
 
         if selectedSource == .system || selectedSource == .both {
             captureEngine.onBuffer = { [weak self] buffer in
                 self?.systemRecognizer.appendBuffer(buffer)
             }
-            try? await captureEngine.start()
-            systemRecognizer.start()
+            do {
+                try await captureEngine.start()
+            } catch {
+                print("FrenchLive: ScreenCaptureEngine failed to start: \(error)")
+            }
+            systemRecognizer.start(locale: locale)
         }
     }
 
@@ -53,6 +68,8 @@ final class SessionManager: ObservableObject {
         guard state == .recording else { return }
         state = .stopping
         stopTimer()
+        autoSaveTimer?.invalidate()
+        autoSaveTimer = nil
 
         micEngine.stop()
         micRecognizer.stop()
@@ -60,8 +77,9 @@ final class SessionManager: ObservableObject {
         systemRecognizer.stop()
 
         if let startDate = sessionStartDate {
+            let outputURL = URL(fileURLWithPath: settings.outputFolderPath)
             do {
-                try TranscriptFileWriter().write(store.entries, startDate: startDate)
+                try TranscriptFileWriter(folderURL: outputURL).write(store.entries, startDate: startDate)
             } catch {
                 print("FrenchLive: auto-save failed: \(error)")
             }
@@ -82,11 +100,16 @@ final class SessionManager: ObservableObject {
         micRecognizer.onPartialResult = { [weak self] text in
             Task { @MainActor in self?.store.liveText = "[mic] \(text)" }
         }
+        micRecognizer.onError = { error in
+            print("FrenchLive: mic recognizer error: \(error)")
+        }
         micRecognizer.onFinalResult = { [weak self] text in
             guard let self else { return }
             let capturedAt = Date()
+            let srcLang = self.settings.sourceLanguage
+            let tgtLang = self.settings.targetLanguage
             Task {
-                let english = await self.translator.translate(text)
+                let english = await self.translator.translate(text, from: srcLang, to: tgtLang)
                 await MainActor.run {
                     self.store.append(TranscriptEntry(
                         timestamp: capturedAt, source: .mic, french: text, english: english
@@ -98,11 +121,16 @@ final class SessionManager: ObservableObject {
         systemRecognizer.onPartialResult = { [weak self] text in
             Task { @MainActor in self?.store.liveText = "[sys] \(text)" }
         }
+        systemRecognizer.onError = { error in
+            print("FrenchLive: system recognizer error: \(error)")
+        }
         systemRecognizer.onFinalResult = { [weak self] text in
             guard let self else { return }
             let capturedAt = Date()
+            let srcLang = self.settings.sourceLanguage
+            let tgtLang = self.settings.targetLanguage
             Task {
-                let english = await self.translator.translate(text)
+                let english = await self.translator.translate(text, from: srcLang, to: tgtLang)
                 await MainActor.run {
                     self.store.append(TranscriptEntry(
                         timestamp: capturedAt, source: .system, french: text, english: english
@@ -113,15 +141,12 @@ final class SessionManager: ObservableObject {
     }
 
     private func requestPermissions() async {
-        // Speech recognition
         await withCheckedContinuation { cont in
             SFSpeechRecognizer.requestAuthorization { _ in cont.resume() }
         }
-        // Microphone
         await withCheckedContinuation { cont in
             AVCaptureDevice.requestAccess(for: .audio) { _ in cont.resume() }
         }
-        // Screen recording is triggered automatically by SCShareableContent in ScreenCaptureEngine
     }
 
     private func startTimer() {
@@ -134,5 +159,19 @@ final class SessionManager: ObservableObject {
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+    }
+
+    private func startAutoSave() {
+        guard settings.autoSaveInterval > 0 else { return }
+        autoSaveTimer = Timer.scheduledTimer(
+            withTimeInterval: Double(settings.autoSaveInterval) * 60,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let startDate = self.sessionStartDate else { return }
+                let outputURL = URL(fileURLWithPath: self.settings.outputFolderPath)
+                try? TranscriptFileWriter(folderURL: outputURL).write(self.store.entries, startDate: startDate)
+            }
+        }
     }
 }
