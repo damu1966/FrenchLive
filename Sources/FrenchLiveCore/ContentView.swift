@@ -200,15 +200,32 @@ struct TranscriptRowView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .frame(width: 38, alignment: .leading)
+                sourceIcon
+                    .frame(width: 20, alignment: .center)
                 Text(entry.french)
                     .font(.body)
             }
             HStack(alignment: .top, spacing: 8) {
                 Text("").frame(width: 38)
+                Text("").frame(width: 20)
                 Text("→ \(entry.english)")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var sourceIcon: some View {
+        switch entry.source {
+        case .mic:
+            Image(systemName: "mic.fill")
+                .font(.caption)
+                .foregroundStyle(.blue)
+        case .system:
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
         }
     }
 }
