@@ -3,17 +3,26 @@ import SwiftUI
 public struct ContentView: View {
     @StateObject private var store: TranscriptStore
     @StateObject private var sessionManager: SessionManager
+    @StateObject private var settings: SettingsStore
+    @State private var showingSettings = false
 
     public init() {
         let store = TranscriptStore()
         let translator = Translator()
+        let settings = SettingsStore()
         _store = StateObject(wrappedValue: store)
-        _sessionManager = StateObject(wrappedValue: SessionManager(store: store, translator: translator))
+        _settings = StateObject(wrappedValue: settings)
+        _sessionManager = StateObject(wrappedValue: SessionManager(store: store, translator: translator, settings: settings))
     }
 
     public var body: some View {
         if #available(macOS 15.0, *) {
-            TranslationEnabledView(content: mainContent, translator: sessionManager.translator)
+            TranslationEnabledView(
+                content: mainContent,
+                translator: sessionManager.translator,
+                sourceLanguage: settings.sourceLanguage,
+                targetLanguage: settings.targetLanguage
+            )
         } else {
             mainContent
         }
@@ -32,6 +41,9 @@ public struct ContentView: View {
             statusBar
         }
         .frame(minWidth: 520, minHeight: 420)
+        .sheet(isPresented: $showingSettings) {
+            SettingsSheet(settings: settings)
+        }
     }
 
     // MARK: - Source picker
@@ -106,6 +118,11 @@ public struct ContentView: View {
                 .disabled(sessionManager.state != .idle)
 
             Button("Open Folder") { openTranscriptsFolder() }
+
+            Button { showingSettings = true } label: {
+                Image(systemName: "gearshape")
+            }
+            .disabled(sessionManager.state != .idle)
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
@@ -156,14 +173,12 @@ public struct ContentView: View {
     }
 
     private func openTranscriptsFolder() {
+        let folder = URL(fileURLWithPath: settings.outputFolderPath)
         let fm = FileManager.default
-        if let docs = try? fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false) {
-            let folder = docs.appendingPathComponent("FrenchTranscripts")
-            if !fm.fileExists(atPath: folder.path) {
-                try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
-            }
-            NSWorkspace.shared.open(folder)
+        if !fm.fileExists(atPath: folder.path) {
+            try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
         }
+        NSWorkspace.shared.open(folder)
     }
 }
 
