@@ -70,6 +70,7 @@ final class SessionManager: ObservableObject {
         micRecognizer.stop()
         await captureEngine.stop()
         systemRecognizer.stop()
+        guard state == .recording else { return }
         store.liveText = ""
         store.liveSource = nil
         state = .paused
