@@ -38,6 +38,8 @@ final class SpeechRecognizer {
         print("FrenchLive: SpeechRecognizer starting recognition task")
         task = rec.recognitionTask(with: req) { [weak self] result, error in
             guard let self else { return }
+            var restarted = false
+
             if let result = result {
                 let text = result.bestTranscription.formattedString
                 print("FrenchLive: recognition result isFinal=\(result.isFinal) text='\(text)'")
@@ -45,6 +47,7 @@ final class SpeechRecognizer {
                     if !text.isEmpty { self.onFinalResult?(text) }
                     self.stop()
                     self.start(locale: locale)
+                    restarted = true
                 } else {
                     self.onPartialResult?(text)
                 }
@@ -52,11 +55,12 @@ final class SpeechRecognizer {
             if let error = error {
                 let nsError = error as NSError
                 print("FrenchLive: recognition error \(nsError.domain) \(nsError.code): \(nsError.localizedDescription)")
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
+                // Restart on any recognition error — all kAFAssistantErrorDomain errors are transient.
+                // Without this, a non-1110 error (e.g. 203 "declined", 216 "cancelled") leaves
+                // isRunning=true with a dead task, permanently silencing subsequent recognition.
+                if !restarted {
                     self.stop()
                     self.start(locale: locale)
-                } else {
-                    self.onError?(error)
                 }
             }
         }
