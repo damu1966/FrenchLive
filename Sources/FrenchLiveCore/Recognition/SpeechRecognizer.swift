@@ -8,12 +8,6 @@ final class SpeechRecognizer {
     private var task: SFSpeechRecognitionTask?
     private var isRunning = false
 
-    // Incremented each time a new task starts. Silence-timer closures capture
-    // this value so stale ones (from a previous task) become no-ops.
-    private var sessionID = 0
-
-    // Silence detection runs on a dedicated queue — keeps it off the main thread.
-    private let silenceQueue = DispatchQueue(label: "com.frenchlive.silence", qos: .userInitiated)
     private var silenceWorkItem: DispatchWorkItem?
     private static let silenceTimeout: TimeInterval = 0.8
 
@@ -60,25 +54,19 @@ final class SpeechRecognizer {
     // MARK: - Private
 
     private func startTask(with rec: SFSpeechRecognizer, locale: Locale) {
-        sessionID &+= 1
-        let currentID = sessionID
-
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         req.requiresOnDeviceRecognition = false
 
-        // Swap to the new request BEFORE ending the old one so the audio
-        // tap never sees a nil request between segments (zero-gap restart).
+        // Swap to new request first so appendBuffer never sees nil between segments.
         let oldRequest = self.request
-        let oldTask = self.task
         self.request = req
+        // Do NOT cancel self.task here — if called from an isFinal callback the
+        // task is already done; cancelling it triggers a second error callback
+        // that would call stop() and fight the new task we just created.
         self.task = nil
 
-        // Signal the old segment to finalise now that new request is live.
-        oldTask?.cancel()
-        oldRequest?.endAudio()
-
-        print("FrenchLive: starting recognition task (session \(currentID))")
+        print("FrenchLive: starting recognition task")
         task = rec.recognitionTask(with: req) { [weak self] result, error in
             guard let self else { return }
             var restarted = false
@@ -100,7 +88,7 @@ final class SpeechRecognizer {
                     restarted = true
                 } else {
                     self.onPartialResult?(text)
-                    self.scheduleSilenceEnd(sessionID: currentID)
+                    self.scheduleSilenceEnd()
                 }
             }
             if let error = error {
@@ -114,25 +102,28 @@ final class SpeechRecognizer {
                 }
             }
         }
+
+        // End old request after new task is already receiving audio.
+        oldRequest?.endAudio()
     }
 
     // MARK: - Silence detection
 
-    private func scheduleSilenceEnd(sessionID: Int) {
-        silenceQueue.async { [weak self] in
-            guard let self, self.sessionID == sessionID else { return }
+    private func scheduleSilenceEnd() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             self.silenceWorkItem?.cancel()
             let item = DispatchWorkItem { [weak self] in
-                guard let self, self.sessionID == sessionID else { return }
-                self.request?.endAudio()
+                self?.request?.endAudio()
             }
             self.silenceWorkItem = item
-            self.silenceQueue.asyncAfter(deadline: .now() + SpeechRecognizer.silenceTimeout, execute: item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + SpeechRecognizer.silenceTimeout,
+                                          execute: item)
         }
     }
 
     private func cancelSilenceTimer() {
-        silenceQueue.async { [weak self] in
+        DispatchQueue.main.async { [weak self] in
             self?.silenceWorkItem?.cancel()
             self?.silenceWorkItem = nil
         }
