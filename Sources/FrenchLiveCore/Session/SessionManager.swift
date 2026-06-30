@@ -64,17 +64,61 @@ final class SessionManager: ObservableObject {
         }
     }
 
-    func stop() async {
+    func pause() async {
         guard state == .recording else { return }
+        micEngine.stop()
+        micRecognizer.stop()
+        await captureEngine.stop()
+        systemRecognizer.stop()
+        store.liveText = ""
+        store.liveSource = nil
+        state = .paused
+    }
+
+    func resume() async {
+        guard state == .paused else { return }
+        state = .recording
+        let locale = Locale(identifier: settings.sourceLanguage)
+
+        if selectedSource == .mic || selectedSource == .both {
+            micEngine.onBuffer = { [weak self] buffer in
+                self?.micRecognizer.appendBuffer(buffer)
+            }
+            do {
+                try micEngine.start()
+            } catch {
+                print("FrenchLive: MicEngine failed to resume: \(error)")
+            }
+            micRecognizer.start(locale: locale)
+        }
+
+        if selectedSource == .system || selectedSource == .both {
+            captureEngine.onBuffer = { [weak self] buffer in
+                self?.systemRecognizer.appendBuffer(buffer)
+            }
+            do {
+                try await captureEngine.start()
+            } catch {
+                print("FrenchLive: ScreenCaptureEngine failed to resume: \(error)")
+            }
+            systemRecognizer.start(locale: locale)
+        }
+    }
+
+    func stop() async {
+        guard state == .recording || state == .paused else { return }
+        let wasRecording = state == .recording
         state = .stopping
         stopTimer()
         autoSaveTimer?.invalidate()
         autoSaveTimer = nil
 
-        micEngine.stop()
-        micRecognizer.stop()
-        await captureEngine.stop()
-        systemRecognizer.stop()
+        if wasRecording {
+            micEngine.stop()
+            micRecognizer.stop()
+            await captureEngine.stop()
+            systemRecognizer.stop()
+        }
 
         if let startDate = sessionStartDate {
             let outputURL = URL(fileURLWithPath: settings.outputFolderPath)

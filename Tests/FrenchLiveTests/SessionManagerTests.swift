@@ -61,4 +61,70 @@ import Foundation
         await manager.stop()
         #expect(await MainActor.run { manager.state } == .idle)
     }
+
+    @Test func testPauseFromRecordingTransitionsToPaused() async {
+        let manager: SessionManager = await MainActor.run {
+            let store = TranscriptStore()
+            let translator = Translator()
+            let settings = SettingsStore()
+            let m = SessionManager(store: store, translator: translator, settings: settings)
+            m.testSetState(.recording)
+            return m
+        }
+        await manager.pause()
+        let state = await MainActor.run { manager.state }
+        #expect(state == .paused)
+    }
+
+    @Test func testPauseWhenIdleIsNoOp() async {
+        let manager: SessionManager = await MainActor.run {
+            let store = TranscriptStore()
+            let translator = Translator()
+            let settings = SettingsStore()
+            return SessionManager(store: store, translator: translator, settings: settings)
+        }
+        await manager.pause()
+        let state = await MainActor.run { manager.state }
+        #expect(state == .idle)
+    }
+
+    @Test func testResumeFromPausedTransitionsToRecording() async {
+        let manager: SessionManager = await MainActor.run {
+            let store = TranscriptStore()
+            let translator = Translator()
+            let settings = SettingsStore()
+            let m = SessionManager(store: store, translator: translator, settings: settings)
+            m.testSetState(.paused)
+            return m
+        }
+        await manager.resume()
+        let state = await MainActor.run { manager.state }
+        #expect(state == .recording)
+    }
+
+    @Test func testResumeWhenIdleIsNoOp() async {
+        let manager: SessionManager = await MainActor.run {
+            let store = TranscriptStore()
+            let translator = Translator()
+            let settings = SettingsStore()
+            return SessionManager(store: store, translator: translator, settings: settings)
+        }
+        await manager.resume()
+        let state = await MainActor.run { manager.state }
+        #expect(state == .idle)
+    }
+
+    @Test func testStopFromPausedTransitionsToIdle() async {
+        let manager: SessionManager = await MainActor.run {
+            let store = TranscriptStore()
+            let translator = Translator()
+            let settings = SettingsStore()
+            let m = SessionManager(store: store, translator: translator, settings: settings)
+            m.testSetState(.paused)
+            return m
+        }
+        await manager.stop()
+        let state = await MainActor.run { manager.state }
+        #expect(state == .idle)
+    }
 }

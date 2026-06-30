@@ -3,6 +3,7 @@ import Foundation
 enum SessionState: Equatable {
     case idle
     case recording
+    case paused
     case stopping
 }
 
