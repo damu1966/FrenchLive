@@ -33,8 +33,16 @@ struct HistorySheet: View {
     private var fileList: some View {
         List(files, id: \.self, selection: $selectedFile) { url in
             Text(displayName(for: url))
+                .contextMenu {
+                    Button("Move to Trash", role: .destructive) {
+                        deleteFile(url)
+                    }
+                }
         }
         .frame(minWidth: 200)
+        .onDeleteCommand {
+            if let url = selectedFile { deleteFile(url) }
+        }
         .overlay {
             if files.isEmpty {
                 Text("No transcripts yet.")
@@ -76,6 +84,15 @@ struct HistorySheet: View {
     private func loadContent(_ url: URL?) {
         guard let url else { content = ""; return }
         content = (try? String(contentsOf: url, encoding: .utf8)) ?? "Could not load file."
+    }
+
+    private func deleteFile(_ url: URL) {
+        try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        files.removeAll { $0 == url }
+        if selectedFile == url {
+            selectedFile = nil
+            content = ""
+        }
     }
 
     private func displayName(for url: URL) -> String {
