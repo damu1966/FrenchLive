@@ -5,6 +5,7 @@ public struct ContentView: View {
     @StateObject private var sessionManager: SessionManager
     @StateObject private var settings: SettingsStore
     @State private var showingSettings = false
+    @State private var showingHistory = false
 
     public init() {
         let store = TranscriptStore()
@@ -43,6 +44,9 @@ public struct ContentView: View {
         .frame(minWidth: 520, minHeight: 420)
         .sheet(isPresented: $showingSettings) {
             SettingsSheet(settings: settings)
+        }
+        .sheet(isPresented: $showingHistory) {
+            HistorySheet(folderPath: settings.outputFolderPath)
         }
     }
 
@@ -126,6 +130,8 @@ public struct ContentView: View {
                 .disabled(sessionManager.state != .idle)
 
             Button("Open Folder") { openTranscriptsFolder() }
+
+            Button("History") { showingHistory = true }
 
             Button { showingSettings = true } label: {
                 Image(systemName: "gearshape")
