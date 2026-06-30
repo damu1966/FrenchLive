@@ -170,7 +170,11 @@ final class SessionManager: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, let startDate = self.sessionStartDate else { return }
                 let outputURL = URL(fileURLWithPath: self.settings.outputFolderPath)
-                try? TranscriptFileWriter(folderURL: outputURL).write(self.store.entries, startDate: startDate)
+                do {
+                    try TranscriptFileWriter(folderURL: outputURL).write(self.store.entries, startDate: startDate)
+                } catch {
+                    print("FrenchLive: auto-save failed: \(error)")
+                }
             }
         }
     }

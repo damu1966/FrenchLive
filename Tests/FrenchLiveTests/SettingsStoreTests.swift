@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import FrenchLiveCore
 
@@ -28,6 +29,26 @@ import Testing
     @Test func testTargetLanguagesHaveNonEmptyLabels() {
         for lang in SettingsStore.targetLanguages {
             #expect(!lang.label.isEmpty)
+        }
+    }
+
+    @Test func testSourceLanguagePersistedToUserDefaults() async {
+        await MainActor.run {
+            let key = "sourceLanguage"
+            defer { UserDefaults.standard.removeObject(forKey: key) }
+            let store = SettingsStore()
+            store.sourceLanguage = "de-DE"
+            #expect(UserDefaults.standard.string(forKey: key) == "de-DE")
+        }
+    }
+
+    @Test func testAutoSaveIntervalPersistedToUserDefaults() async {
+        await MainActor.run {
+            let key = "autoSaveInterval"
+            defer { UserDefaults.standard.removeObject(forKey: key) }
+            let store = SettingsStore()
+            store.autoSaveInterval = 10
+            #expect(UserDefaults.standard.integer(forKey: key) == 10)
         }
     }
 }
