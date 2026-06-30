@@ -237,24 +237,21 @@ struct TranscriptRowView: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .top, spacing: 8) {
-                Text(Self.formatter.string(from: entry.timestamp))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 38, alignment: .leading)
-                sourceIcon
-                    .frame(width: 20, alignment: .center)
-                Text(entry.french)
-                    .font(.body)
-            }
-            HStack(alignment: .top, spacing: 8) {
-                Text("").frame(width: 38)
-                Text("").frame(width: 20)
-                Text("→ \(entry.english)")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+        HStack(alignment: .top, spacing: 8) {
+            Text(Self.formatter.string(from: entry.timestamp))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .frame(width: 38, alignment: .leading)
+            sourceIcon
+                .frame(width: 20, alignment: .center)
+            Text(entry.french)
+                .font(.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+            Text(entry.english)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
