@@ -3,7 +3,7 @@ import Speech
 import AVFoundation
 
 final class SpeechRecognizer {
-    private let recognizer: SFSpeechRecognizer
+    private var recognizer: SFSpeechRecognizer?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var isRunning = false
@@ -12,41 +12,49 @@ final class SpeechRecognizer {
     var onFinalResult: ((String) -> Void)?
     var onError: ((Error) -> Void)?
 
-    init() {
-        // fr-FR is always available on macOS — force-unwrap is safe here
-        recognizer = SFSpeechRecognizer(locale: Locale(identifier: "fr-FR"))!
-        recognizer.defaultTaskHint = .dictation
-    }
-
-    func start() {
+    func start(locale: Locale) {
         guard !isRunning else { return }
+
+        guard let rec = SFSpeechRecognizer(locale: locale) else {
+            print("FrenchLive: SpeechRecognizer unavailable for locale \(locale.identifier)")
+            onError?(NSError(domain: "SpeechRecognizer", code: -1,
+                             userInfo: [NSLocalizedDescriptionKey: "Locale \(locale.identifier) unavailable"]))
+            return
+        }
+        rec.defaultTaskHint = .dictation
+        recognizer = rec
+
+        guard rec.isAvailable else {
+            print("FrenchLive: SpeechRecognizer not available for \(locale.identifier)")
+            return
+        }
         isRunning = true
 
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
-        // Allow on-device if available, fall back to network otherwise
         req.requiresOnDeviceRecognition = false
         request = req
 
-        task = recognizer.recognitionTask(with: req) { [weak self] result, error in
+        print("FrenchLive: SpeechRecognizer starting recognition task")
+        task = rec.recognitionTask(with: req) { [weak self] result, error in
             guard let self else { return }
             if let result = result {
                 let text = result.bestTranscription.formattedString
+                print("FrenchLive: recognition result isFinal=\(result.isFinal) text='\(text)'")
                 if result.isFinal {
                     if !text.isEmpty { self.onFinalResult?(text) }
-                    // Restart to bypass the ~1-minute limit
                     self.stop()
-                    self.start()
+                    self.start(locale: locale)
                 } else {
                     self.onPartialResult?(text)
                 }
             }
             if let error = error {
                 let nsError = error as NSError
-                // Restart on Apple's audio duration limit error, not on user-initiated stop
-                if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 1110 {
+                print("FrenchLive: recognition error \(nsError.domain) \(nsError.code): \(nsError.localizedDescription)")
+                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
                     self.stop()
-                    self.start()
+                    self.start(locale: locale)
                 } else {
                     self.onError?(error)
                 }
@@ -64,5 +72,6 @@ final class SpeechRecognizer {
         task?.finish()
         task = nil
         request = nil
+        recognizer = nil
     }
 }
