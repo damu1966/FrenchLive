@@ -102,15 +102,21 @@ public struct ContentView: View {
 
     private var controlBar: some View {
         HStack {
-            Button(action: toggleRecording) {
-                Label(
-                    sessionManager.state == .recording ? "Stop" : "Start",
-                    systemImage: sessionManager.state == .recording ? "stop.fill" : "record.circle"
-                )
+            Button(action: togglePause) {
+                Label(primaryButtonLabel, systemImage: primaryButtonIcon)
             }
             .buttonStyle(.borderedProminent)
-            .tint(sessionManager.state == .recording ? .red : .accentColor)
+            .tint(primaryButtonTint)
             .disabled(sessionManager.state == .stopping)
+
+            if sessionManager.state == .recording || sessionManager.state == .paused {
+                Button(action: endSession) {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(sessionManager.state == .stopping)
+            }
 
             Spacer()
 
@@ -128,6 +134,33 @@ public struct ContentView: View {
         .padding(.vertical, 10)
     }
 
+    private var primaryButtonLabel: String {
+        switch sessionManager.state {
+        case .idle:     return "Start"
+        case .recording: return "Pause"
+        case .paused:   return "Resume"
+        case .stopping: return "Pause"
+        }
+    }
+
+    private var primaryButtonIcon: String {
+        switch sessionManager.state {
+        case .idle:     return "record.circle"
+        case .recording: return "pause.fill"
+        case .paused:   return "play.fill"
+        case .stopping: return "pause.fill"
+        }
+    }
+
+    private var primaryButtonTint: Color {
+        switch sessionManager.state {
+        case .idle:     return .accentColor
+        case .recording: return .orange
+        case .paused:   return .accentColor
+        case .stopping: return .orange
+        }
+    }
+
     // MARK: - Status bar
 
     private var statusBar: some View {
@@ -135,6 +168,11 @@ public struct ContentView: View {
             if sessionManager.state == .recording {
                 Circle().fill(.red).frame(width: 7, height: 7)
                 Text("Recording · \(sessionManager.selectedSource.rawValue) · \(formattedElapsed)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if sessionManager.state == .paused {
+                Circle().fill(.yellow).frame(width: 7, height: 7)
+                Text("Paused · \(formattedElapsed)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else if sessionManager.state == .stopping {
@@ -162,14 +200,19 @@ public struct ContentView: View {
         return String(format: "%02d:%02d:%02d", h, m, s)
     }
 
-    private func toggleRecording() {
+    private func togglePause() {
         Task {
-            if sessionManager.state == .recording {
-                await sessionManager.stop()
-            } else {
-                await sessionManager.start()
+            switch sessionManager.state {
+            case .idle:      await sessionManager.start()
+            case .recording: await sessionManager.pause()
+            case .paused:    await sessionManager.resume()
+            case .stopping:  break
             }
         }
+    }
+
+    private func endSession() {
+        Task { await sessionManager.stop() }
     }
 
     private func openTranscriptsFolder() {
