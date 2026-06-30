@@ -24,6 +24,15 @@ struct HistorySheet: View {
             contentPane
         }
         .frame(minWidth: 600, minHeight: 400)
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(content, forType: .string)
+                }
+                .disabled(selectedFile == nil)
+            }
+        }
         .onAppear { loadFiles() }
         .onChange(of: selectedFile) { url in
             loadContent(url)
