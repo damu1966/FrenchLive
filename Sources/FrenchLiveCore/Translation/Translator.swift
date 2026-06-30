@@ -14,12 +14,12 @@ actor Translator {
         _session = session
     }
 
-    func translate(_ text: String) async -> String {
+    func translate(_ text: String, from sourceLanguage: String = "fr-FR", to targetLanguage: String = "en") async -> String {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
         if #available(macOS 15.0, *), let session = _session as? TranslationSession {
             return await translateWithApple(text, session: session)
         }
-        return await translateWithMyMemory(text)
+        return await translateWithMyMemory(text, from: sourceLanguage, to: targetLanguage)
     }
 
     @available(macOS 15.0, *)
@@ -32,9 +32,10 @@ actor Translator {
         }
     }
 
-    private func translateWithMyMemory(_ text: String) async -> String {
+    private func translateWithMyMemory(_ text: String, from sourceLanguage: String, to targetLanguage: String) async -> String {
+        let sourceLangCode = sourceLanguage.components(separatedBy: "-").first ?? "fr"
         guard let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://api.mymemory.translated.net/get?q=\(encoded)&langpair=fr|en")
+              let url = URL(string: "https://api.mymemory.translated.net/get?q=\(encoded)&langpair=\(sourceLangCode)|\(targetLanguage)")
         else { return "[translation unavailable]" }
 
         do {
