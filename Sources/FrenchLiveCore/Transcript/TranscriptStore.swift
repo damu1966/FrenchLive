@@ -12,6 +12,11 @@ final class TranscriptStore: ObservableObject {
         liveSource = nil
     }
 
+    func updateEnglish(for id: UUID, english: String) {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[index].english = english
+    }
+
     func clear() {
         entries = []
         liveText = ""

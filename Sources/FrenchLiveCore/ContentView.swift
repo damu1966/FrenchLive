@@ -256,9 +256,9 @@ struct TranscriptRowView: View {
                 .font(.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Divider()
-            Text(entry.english)
+            Text(entry.english.isEmpty ? "…" : entry.english)
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(entry.english.isEmpty ? .tertiary : .secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

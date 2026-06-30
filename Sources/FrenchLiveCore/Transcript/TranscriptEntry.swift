@@ -10,5 +10,5 @@ struct TranscriptEntry: Identifiable {
     let timestamp: Date
     let source: AudioSource
     let french: String
-    let english: String
+    var english: String  // var: filled immediately with "" then updated after translation (Fix A)
 }

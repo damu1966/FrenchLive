@@ -57,10 +57,10 @@ final class SessionManager: ObservableObject {
             }
             do {
                 try await captureEngine.start()
+                systemRecognizer.start(locale: locale)
             } catch {
                 print("FrenchLive: ScreenCaptureEngine failed to start: \(error)")
             }
-            systemRecognizer.start(locale: locale)
         }
     }
 
@@ -99,10 +99,10 @@ final class SessionManager: ObservableObject {
             }
             do {
                 try await captureEngine.start()
+                systemRecognizer.start(locale: locale)
             } catch {
                 print("FrenchLive: ScreenCaptureEngine failed to resume: \(error)")
             }
-            systemRecognizer.start(locale: locale)
         }
     }
 
@@ -158,12 +158,11 @@ final class SessionManager: ObservableObject {
             let srcLang = self.settings.sourceLanguage
             let tgtLang = self.settings.targetLanguage
             Task {
+                // Fix A: append immediately so text appears without waiting for translation.
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, english: "")
+                await MainActor.run { self.store.append(entry) }
                 let english = await self.translator.translate(text, from: srcLang, to: tgtLang)
-                await MainActor.run {
-                    self.store.append(TranscriptEntry(
-                        timestamp: capturedAt, source: .mic, french: text, english: english
-                    ))
-                }
+                await MainActor.run { self.store.updateEnglish(for: entry.id, english: english) }
             }
         }
 
@@ -182,12 +181,11 @@ final class SessionManager: ObservableObject {
             let srcLang = self.settings.sourceLanguage
             let tgtLang = self.settings.targetLanguage
             Task {
+                // Fix A: append immediately so text appears without waiting for translation.
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, english: "")
+                await MainActor.run { self.store.append(entry) }
                 let english = await self.translator.translate(text, from: srcLang, to: tgtLang)
-                await MainActor.run {
-                    self.store.append(TranscriptEntry(
-                        timestamp: capturedAt, source: .system, french: text, english: english
-                    ))
-                }
+                await MainActor.run { self.store.updateEnglish(for: entry.id, english: english) }
             }
         }
     }
