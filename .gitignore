@@ -2,3 +2,4 @@
 *.xcodeproj/
 *.xcworkspace/
 FrenchLive.app/
+.DS_Store
