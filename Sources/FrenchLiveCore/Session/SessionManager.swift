@@ -154,13 +154,12 @@ final class SessionManager: ObservableObject {
         micRecognizer.onError = { error in
             print("FrenchLive: mic recognizer error: \(error)")
         }
-        micRecognizer.onFinalResult = { [weak self] text in
+        micRecognizer.onFinalResult = { [weak self] tokens, text in
             guard let self else { return }
             let capturedAt = Date()
             Task {
-                let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, english: "")
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, tokens: tokens, english: "")
                 await MainActor.run { self.store.append(entry) }
-                // Read @MainActor settings on the main actor where they live.
                 let (srcLang, tgtLang) = await MainActor.run {
                     (self.settings.sourceLanguage, self.settings.targetLanguage)
                 }
@@ -178,11 +177,11 @@ final class SessionManager: ObservableObject {
         systemRecognizer.onError = { error in
             print("FrenchLive: system recognizer error: \(error)")
         }
-        systemRecognizer.onFinalResult = { [weak self] text in
+        systemRecognizer.onFinalResult = { [weak self] tokens, text in
             guard let self else { return }
             let capturedAt = Date()
             Task {
-                let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, english: "")
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, tokens: tokens, english: "")
                 await MainActor.run { self.store.append(entry) }
                 let (srcLang, tgtLang) = await MainActor.run {
                     (self.settings.sourceLanguage, self.settings.targetLanguage)

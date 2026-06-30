@@ -18,7 +18,7 @@ final class SpeechRecognizer {
     private static let silenceTimeout: TimeInterval = 0.8
 
     var onPartialResult: ((String) -> Void)?
-    var onFinalResult: ((String) -> Void)?
+    var onFinalResult: (([WordToken], String) -> Void)?
     var onError: ((Error) -> Void)?
 
     func start(locale: Locale) {
@@ -84,10 +84,16 @@ final class SpeechRecognizer {
             var restarted = false
 
             if let result = result {
-                let text = result.bestTranscription.formattedString
+                let transcription = result.bestTranscription
+                let text = transcription.formattedString
                 if result.isFinal {
                     self.cancelSilenceTimer()
-                    if !text.isEmpty { self.onFinalResult?(text) }
+                    if !text.isEmpty {
+                        let tokens = transcription.segments.map {
+                            WordToken(word: $0.substring, confidence: $0.confidence)
+                        }
+                        self.onFinalResult?(tokens, text)
+                    }
                     if let rec = self.recognizer {
                         self.startTask(with: rec, locale: locale)
                     }

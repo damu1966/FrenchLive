@@ -256,7 +256,7 @@ struct TranscriptRowView: View {
                 .frame(width: 38, alignment: .leading)
             sourceIcon
                 .frame(width: 20, alignment: .center)
-            Text(entry.french)
+            frenchText
                 .font(.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Divider()
@@ -265,6 +265,24 @@ struct TranscriptRowView: View {
                 .foregroundStyle(entry.english.isEmpty ? .tertiary : .secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    // Renders each word at its recognition confidence.
+    // High (≥0.85): normal • Medium (0.5–0.85): muted • Low (<0.5): grey.
+    // Falls back to plain text when no confidence data is available.
+    private var frenchText: Text {
+        guard !entry.tokens.isEmpty else { return Text(entry.french) }
+        return entry.tokens.indices.reduce(Text("")) { acc, i in
+            let token = entry.tokens[i]
+            let suffix = i < entry.tokens.count - 1 ? " " : ""
+            return acc + Text(token.word + suffix).foregroundColor(wordColor(token.confidence))
+        }
+    }
+
+    private func wordColor(_ confidence: Float) -> Color {
+        if confidence >= 0.85 { return .primary }
+        if confidence >= 0.5  { return Color.primary.opacity(0.55) }
+        return .secondary
     }
 
     @ViewBuilder
