@@ -52,4 +52,20 @@ import Foundation
             #expect(store.entries[1].french == "Deux")
         }
     }
+
+    @Test func testLiveSourceDefaultsToNil() async {
+        await MainActor.run {
+            let store = TranscriptStore()
+            #expect(store.liveSource == nil)
+        }
+    }
+
+    @Test func testClearResetsLiveSource() async {
+        await MainActor.run {
+            let store = TranscriptStore()
+            store.liveSource = .mic
+            store.clear()
+            #expect(store.liveSource == nil)
+        }
+    }
 }
