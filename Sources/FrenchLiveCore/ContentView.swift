@@ -108,6 +108,7 @@ public struct ContentView: View {
             .buttonStyle(.borderedProminent)
             .tint(primaryButtonTint)
             .disabled(sessionManager.state == .stopping)
+            .keyboardShortcut(" ", modifiers: [])
 
             if sessionManager.state == .recording || sessionManager.state == .paused {
                 Button(action: endSession) {
@@ -116,6 +117,7 @@ public struct ContentView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .disabled(sessionManager.state == .stopping)
+                .keyboardShortcut(".", modifiers: .command)
             }
 
             Spacer()
