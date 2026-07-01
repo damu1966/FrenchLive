@@ -72,11 +72,6 @@ public struct ContentView: View {
 
     // MARK: - Transcript scroll view
 
-    // After a sentence commits we hold the scroll on that entry so the user can
-    // read the French text and watch the English translation arrive. The live-row
-    // scroll is suppressed for this window; once it expires normal following resumes.
-    @State private var liveScrollSuppressedUntil: Date = .distantPast
-
     private var transcriptScrollView: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -92,23 +87,24 @@ public struct ContentView: View {
                 }
                 .padding()
             }
+            // Scroll to newly committed entry so the user can watch its English arrive.
             .onChange(of: store.entries.count) { _ in
                 withAnimation {
                     if let lastId = store.entries.last?.id {
                         proxy.scrollTo(lastId, anchor: .bottom)
-                    } else {
-                        proxy.scrollTo("live", anchor: .bottom)
                     }
                 }
-                // Suppress live-row scroll for 2 s so translation has time to arrive
-                // and remain visible before the next live row steals focus.
-                liveScrollSuppressedUntil = Date().addingTimeInterval(2.0)
             }
-            // Only scroll to live row when it first appears (liveText was empty
-            // and is now non-empty). Avoids 5-10 animations/second during speech.
-            // Suppressed briefly after each sentence commit (see above).
+            // Only follow live row when no entry is waiting for its translation.
+            // This keeps the committed sentence visible until English fills in.
             .onChange(of: store.liveText.isEmpty) { isEmpty in
-                if !isEmpty && Date() > liveScrollSuppressedUntil {
+                if !isEmpty && !store.lastEntryPendingTranslation {
+                    withAnimation { proxy.scrollTo("live", anchor: .bottom) }
+                }
+            }
+            // Once translation arrives, resume following the live row.
+            .onChange(of: store.lastEntryPendingTranslation) { pending in
+                if !pending && !store.liveText.isEmpty {
                     withAnimation { proxy.scrollTo("live", anchor: .bottom) }
                 }
             }
