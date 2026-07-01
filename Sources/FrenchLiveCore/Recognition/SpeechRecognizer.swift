@@ -9,7 +9,13 @@ final class SpeechRecognizer {
     private var isRunning = false
 
     private var silenceWorkItem: DispatchWorkItem?
-    private static let silenceTimeout: TimeInterval = 0.8
+    // 1.5 s gives natural speech room to breathe without a false-silence cut.
+    private static let silenceTimeout: TimeInterval = 1.5
+
+    // Last partial result accumulated during the current task — rescued if the
+    // task errors out before it can send a proper isFinal result.
+    private var lastPartialText: String = ""
+    private var lastPartialTokens: [WordToken] = []
 
     var onPartialResult: ((String) -> Void)?
     var onFinalResult: (([WordToken], String) -> Void)?
@@ -44,6 +50,8 @@ final class SpeechRecognizer {
     func stop() {
         cancelSilenceTimer()
         isRunning = false
+        lastPartialText = ""
+        lastPartialTokens = []
         request?.endAudio()
         task?.finish()
         task = nil
@@ -76,6 +84,8 @@ final class SpeechRecognizer {
                 let text = transcription.formattedString
                 if result.isFinal {
                     self.cancelSilenceTimer()
+                    self.lastPartialText = ""
+                    self.lastPartialTokens = []
                     if !text.isEmpty {
                         let tokens = transcription.segments.map {
                             WordToken(word: $0.substring, confidence: $0.confidence)
@@ -87,6 +97,11 @@ final class SpeechRecognizer {
                     }
                     restarted = true
                 } else {
+                    // Keep the latest partial so we can rescue it if the task errors.
+                    self.lastPartialText = text
+                    self.lastPartialTokens = transcription.segments.map {
+                        WordToken(word: $0.substring, confidence: $0.confidence)
+                    }
                     self.onPartialResult?(text)
                     self.scheduleSilenceEnd()
                 }
@@ -95,9 +110,17 @@ final class SpeechRecognizer {
                 let nsError = error as NSError
                 print("FrenchLive: recognition error \(nsError.domain) \(nsError.code): \(nsError.localizedDescription)")
                 if !restarted {
-                    // Restart via the same zero-gap path used by isFinal so no
-                    // audio is dropped between tasks. Full stop/restart is only
-                    // needed when the recognizer itself is gone.
+                    // Rescue any partial text the task accumulated before erroring
+                    // so the sentence isn't silently dropped from the transcript.
+                    let savedText = self.lastPartialText
+                    let savedTokens = self.lastPartialTokens
+                    self.lastPartialText = ""
+                    self.lastPartialTokens = []
+                    if !savedText.isEmpty {
+                        self.onFinalResult?(savedTokens, savedText)
+                    }
+
+                    // Restart via zero-gap startTask so no audio is dropped.
                     if let rec = self.recognizer {
                         self.startTask(with: rec, locale: locale)
                     } else {
