@@ -6,8 +6,12 @@ import Speech
 @MainActor
 final class SessionManager: ObservableObject {
     @Published private(set) var state: SessionState = .idle
-    @Published var selectedSource: AudioSourceMode = .both
     @Published private(set) var elapsedSeconds: Int = 0
+
+    var selectedSource: AudioSourceMode {
+        get { settings.selectedSource }
+        set { settings.selectedSource = newValue }
+    }
 
     let store: TranscriptStore
     let translator: Translator

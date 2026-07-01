@@ -26,20 +26,27 @@ final class SettingsStore: ObservableObject {
         LanguageOption(code: "pt", label: "Portuguese"),
     ]
 
+    // Fixed suite so prefs persist whether running from .app bundle or swift run.
+    private static let ud = UserDefaults(suiteName: "com.frenchlive.app") ?? .standard
+
+    @Published var selectedSource: AudioSourceMode {
+        didSet { Self.ud.set(selectedSource.rawValue, forKey: Keys.selectedSource) }
+    }
     @Published var sourceLanguage: String {
-        didSet { UserDefaults.standard.set(sourceLanguage, forKey: Keys.sourceLanguage) }
+        didSet { Self.ud.set(sourceLanguage, forKey: Keys.sourceLanguage) }
     }
     @Published var targetLanguage: String {
-        didSet { UserDefaults.standard.set(targetLanguage, forKey: Keys.targetLanguage) }
+        didSet { Self.ud.set(targetLanguage, forKey: Keys.targetLanguage) }
     }
     @Published var outputFolderPath: String {
-        didSet { UserDefaults.standard.set(outputFolderPath, forKey: Keys.outputFolderPath) }
+        didSet { Self.ud.set(outputFolderPath, forKey: Keys.outputFolderPath) }
     }
     @Published var autoSaveInterval: Int {
-        didSet { UserDefaults.standard.set(autoSaveInterval, forKey: Keys.autoSaveInterval) }
+        didSet { Self.ud.set(autoSaveInterval, forKey: Keys.autoSaveInterval) }
     }
 
     private enum Keys {
+        static let selectedSource    = "selectedSource"
         static let sourceLanguage    = "sourceLanguage"
         static let targetLanguage    = "targetLanguage"
         static let outputFolderPath  = "outputFolderPath"
@@ -47,10 +54,12 @@ final class SettingsStore: ObservableObject {
     }
 
     init() {
-        let ud = UserDefaults.standard
+        let ud = Self.ud
         let defaultFolder = FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("FrenchTranscripts").path
+        let rawSource = ud.string(forKey: Keys.selectedSource) ?? AudioSourceMode.both.rawValue
+        selectedSource   = AudioSourceMode(rawValue: rawSource) ?? .both
         sourceLanguage   = ud.string(forKey: Keys.sourceLanguage)   ?? "fr-FR"
         targetLanguage   = ud.string(forKey: Keys.targetLanguage)   ?? "en"
         outputFolderPath = ud.string(forKey: Keys.outputFolderPath) ?? defaultFolder

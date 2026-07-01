@@ -56,7 +56,7 @@ public struct ContentView: View {
         HStack {
             Text("Source:")
                 .foregroundStyle(.secondary)
-            Picker("", selection: $sessionManager.selectedSource) {
+            Picker("", selection: $settings.selectedSource) {
                 ForEach(AudioSourceMode.allCases, id: \.self) { mode in
                     Text(mode.rawValue).tag(mode)
                 }

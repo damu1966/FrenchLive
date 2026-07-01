@@ -95,9 +95,16 @@ final class SpeechRecognizer {
                 let nsError = error as NSError
                 print("FrenchLive: recognition error \(nsError.domain) \(nsError.code): \(nsError.localizedDescription)")
                 if !restarted {
-                    self.stop()
-                    DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        self?.start(locale: locale)
+                    // Restart via the same zero-gap path used by isFinal so no
+                    // audio is dropped between tasks. Full stop/restart is only
+                    // needed when the recognizer itself is gone.
+                    if let rec = self.recognizer {
+                        self.startTask(with: rec, locale: locale)
+                    } else {
+                        self.stop()
+                        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                            self?.start(locale: locale)
+                        }
                     }
                 }
             }
