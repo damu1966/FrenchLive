@@ -28,7 +28,12 @@ actor Translator {
     func translate(_ text: String, from sourceLanguage: String = "fr-FR", to targetLanguage: String = "en") async -> String {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
         if #available(macOS 15.0, *), let session = _session as? TranslationSession {
-            return await translateWithApple(text, session: session)
+            let result = await translateWithApple(text, session: session)
+            // Apple session not yet warmed up or returned empty — fall through to MyMemory.
+            if !result.isEmpty && result != "[translation unavailable]" {
+                return result
+            }
+            print("FrenchLive: Apple translation returned '\(result)', falling back to MyMemory")
         }
         return await translateWithMyMemory(text, from: sourceLanguage, to: targetLanguage)
     }
@@ -37,8 +42,13 @@ actor Translator {
     private func translateWithApple(_ text: String, session: TranslationSession) async -> String {
         do {
             let response = try await session.translate(text)
-            return response.targetText
+            let result = response.targetText
+            if result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "[translation unavailable]"
+            }
+            return result
         } catch {
+            print("FrenchLive: Apple translation error: \(error)")
             return "[translation unavailable]"
         }
     }

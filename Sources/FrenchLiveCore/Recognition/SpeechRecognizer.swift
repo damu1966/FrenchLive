@@ -9,8 +9,8 @@ final class SpeechRecognizer {
     private var isRunning = false
 
     private var silenceWorkItem: DispatchWorkItem?
-    // 1.5 s gives natural speech room to breathe without a false-silence cut.
-    private static let silenceTimeout: TimeInterval = 1.5
+    // 3 s lets conversational turn-taking finish naturally before forcing a cut.
+    private static let silenceTimeout: TimeInterval = 3.0
 
     // Last partial result accumulated during the current task — rescued if the
     // task errors out before it can send a proper isFinal result.
