@@ -88,9 +88,11 @@ public struct ContentView: View {
                 .padding()
             }
             .onChange(of: store.entries.count) { _ in
+                // anchor: .top so the full entry is visible from its first line,
+                // not just its tail — long sentences were clipped at the bottom.
                 withAnimation {
                     if let lastId = store.entries.last?.id {
-                        proxy.scrollTo(lastId, anchor: .bottom)
+                        proxy.scrollTo(lastId, anchor: .top)
                     } else {
                         proxy.scrollTo("live", anchor: .bottom)
                     }
@@ -102,6 +104,13 @@ public struct ContentView: View {
                 if !isEmpty {
                     withAnimation { proxy.scrollTo("live", anchor: .bottom) }
                 }
+            }
+            // Scroll to reveal each entry when its translation lands, so long
+            // sentences aren't stuck off-screen showing "…" while the live row
+            // has scrolled past them.
+            .onChange(of: store.lastTranslatedId) { id in
+                guard let id else { return }
+                withAnimation { proxy.scrollTo(id, anchor: .top) }
             }
         }
     }
