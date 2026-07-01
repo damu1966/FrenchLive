@@ -169,14 +169,22 @@ final class SessionManager: ObservableObject {
             guard let self else { return }
             guard text.split(separator: " ").count >= 2 else { return }
             let capturedAt = Date()
-            Task {
-                let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, tokens: tokens, english: "")
-                await MainActor.run { self.store.append(entry) }
-                let (srcLang, tgtLang) = await MainActor.run {
-                    (self.settings.sourceLanguage, self.settings.targetLanguage)
+            // Use DispatchQueue.main instead of Task+MainActor.run — the latter
+            // relies on Swift Concurrency executor checks that are broken on macOS 26.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .mic,
+                                            french: text, tokens: tokens, english: "")
+                self.store.append(entry)
+                let entryID  = entry.id
+                let srcLang  = self.settings.sourceLanguage
+                let tgtLang  = self.settings.targetLanguage
+                let store    = self.store
+                let translator = self.translator
+                Task.detached {
+                    let english = await translator.translate(text, from: srcLang, to: tgtLang)
+                    DispatchQueue.main.async { store.updateEnglish(for: entryID, english: english) }
                 }
-                let english = await self.translator.translate(text, from: srcLang, to: tgtLang)
-                await MainActor.run { self.store.updateEnglish(for: entry.id, english: english) }
             }
         }
 
@@ -193,14 +201,20 @@ final class SessionManager: ObservableObject {
             guard let self else { return }
             guard text.split(separator: " ").count >= 2 else { return }
             let capturedAt = Date()
-            Task {
-                let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, tokens: tokens, english: "")
-                await MainActor.run { self.store.append(entry) }
-                let (srcLang, tgtLang) = await MainActor.run {
-                    (self.settings.sourceLanguage, self.settings.targetLanguage)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .system,
+                                            french: text, tokens: tokens, english: "")
+                self.store.append(entry)
+                let entryID  = entry.id
+                let srcLang  = self.settings.sourceLanguage
+                let tgtLang  = self.settings.targetLanguage
+                let store    = self.store
+                let translator = self.translator
+                Task.detached {
+                    let english = await translator.translate(text, from: srcLang, to: tgtLang)
+                    DispatchQueue.main.async { store.updateEnglish(for: entryID, english: english) }
                 }
-                let english = await self.translator.translate(text, from: srcLang, to: tgtLang)
-                await MainActor.run { self.store.updateEnglish(for: entry.id, english: english) }
             }
         }
     }
