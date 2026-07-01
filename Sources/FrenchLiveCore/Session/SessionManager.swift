@@ -165,13 +165,12 @@ final class SessionManager: ObservableObject {
         micRecognizer.onError = { error in
             print("FrenchLive: mic recognizer error: \(error)")
         }
-        micRecognizer.onFinalResult = { [weak self] tokens, text, rawSpeakerLabel in
+        micRecognizer.onFinalResult = { [weak self] tokens, text, _ in
             guard let self else { return }
             guard text.split(separator: " ").count >= 2 else { return }
             let capturedAt = Date()
-            let speakerLabel = self.resolveSpeakerLabel(rawSpeakerLabel)
             Task {
-                let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, tokens: tokens, english: "", speakerLabel: speakerLabel)
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, tokens: tokens, english: "")
                 await MainActor.run { self.store.append(entry) }
                 let (srcLang, tgtLang) = await MainActor.run {
                     (self.settings.sourceLanguage, self.settings.targetLanguage)
@@ -190,13 +189,12 @@ final class SessionManager: ObservableObject {
         systemRecognizer.onError = { error in
             print("FrenchLive: system recognizer error: \(error)")
         }
-        systemRecognizer.onFinalResult = { [weak self] tokens, text, rawSpeakerLabel in
+        systemRecognizer.onFinalResult = { [weak self] tokens, text, _ in
             guard let self else { return }
             guard text.split(separator: " ").count >= 2 else { return }
             let capturedAt = Date()
-            let speakerLabel = self.resolveSpeakerLabel(rawSpeakerLabel)
             Task {
-                let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, tokens: tokens, english: "", speakerLabel: speakerLabel)
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, tokens: tokens, english: "")
                 await MainActor.run { self.store.append(entry) }
                 let (srcLang, tgtLang) = await MainActor.run {
                     (self.settings.sourceLanguage, self.settings.targetLanguage)

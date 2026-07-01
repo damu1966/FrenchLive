@@ -28,12 +28,10 @@ actor Translator {
     func translate(_ text: String, from sourceLanguage: String = "fr-FR", to targetLanguage: String = "en") async -> String {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
         if #available(macOS 15.0, *), let session = _session as? TranslationSession {
-            let result = await translateWithApple(text, session: session)
-            // Apple session not yet warmed up or returned empty — fall through to MyMemory.
-            if !result.isEmpty && result != "[translation unavailable]" {
-                return result
-            }
-            print("FrenchLive: Apple translation returned '\(result)', falling back to MyMemory")
+            // Apple Translation is the primary path on macOS 15+. Never fall back to
+            // MyMemory when the session is set — MyMemory's free tier is rate-limited
+            // and making it a fallback hammers the quota on every Apple error.
+            return await translateWithApple(text, session: session)
         }
         return await translateWithMyMemory(text, from: sourceLanguage, to: targetLanguage)
     }
@@ -44,6 +42,7 @@ actor Translator {
             let response = try await session.translate(text)
             let result = response.targetText
             if result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print("FrenchLive: Apple translation returned empty string")
                 return "[translation unavailable]"
             }
             return result
