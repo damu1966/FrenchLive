@@ -161,7 +161,7 @@ final class SessionManager: ObservableObject {
         micRecognizer.onFinalResult = { [weak self] tokens, text in
             guard let self else { return }
             // Skip single-word crosstalk artifacts from rapid speaker switches.
-            guard text.split(separator: " ").count >= 3 else { return }
+            guard text.split(separator: " ").count >= 2 else { return }
             let capturedAt = Date()
             Task {
                 let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, tokens: tokens, english: "")
@@ -185,7 +185,7 @@ final class SessionManager: ObservableObject {
         }
         systemRecognizer.onFinalResult = { [weak self] tokens, text in
             guard let self else { return }
-            guard text.split(separator: " ").count >= 3 else { return }
+            guard text.split(separator: " ").count >= 2 else { return }
             let capturedAt = Date()
             Task {
                 let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, tokens: tokens, english: "")
