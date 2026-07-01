@@ -25,6 +25,11 @@ final class SessionManager: ObservableObject {
     private var timer: Timer?
     private var autoSaveTimer: Timer?
 
+    // Maps raw Apple speaker labels ("0", "1", …) → friendly labels ("P1", "P2", …).
+    // Reset each time a new session starts so numbering is consistent per conversation.
+    private var speakerLabelMap: [String: String] = [:]
+    private var speakerCounter = 0
+
     init(store: TranscriptStore, translator: Translator, settings: SettingsStore) {
         self.store = store
         self.translator = translator
@@ -37,6 +42,8 @@ final class SessionManager: ObservableObject {
         await requestPermissions()
         state = .recording
         sessionStartDate = Date()
+        speakerLabelMap = [:]
+        speakerCounter = 0
         startTimer()
         startAutoSave()
         print("FrenchLive: SessionManager start, source=\(selectedSource)")
@@ -158,13 +165,13 @@ final class SessionManager: ObservableObject {
         micRecognizer.onError = { error in
             print("FrenchLive: mic recognizer error: \(error)")
         }
-        micRecognizer.onFinalResult = { [weak self] tokens, text in
+        micRecognizer.onFinalResult = { [weak self] tokens, text, rawSpeakerLabel in
             guard let self else { return }
-            // Skip single-word crosstalk artifacts from rapid speaker switches.
             guard text.split(separator: " ").count >= 2 else { return }
             let capturedAt = Date()
+            let speakerLabel = self.resolveSpeakerLabel(rawSpeakerLabel)
             Task {
-                let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, tokens: tokens, english: "")
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .mic, french: text, tokens: tokens, english: "", speakerLabel: speakerLabel)
                 await MainActor.run { self.store.append(entry) }
                 let (srcLang, tgtLang) = await MainActor.run {
                     (self.settings.sourceLanguage, self.settings.targetLanguage)
@@ -183,12 +190,13 @@ final class SessionManager: ObservableObject {
         systemRecognizer.onError = { error in
             print("FrenchLive: system recognizer error: \(error)")
         }
-        systemRecognizer.onFinalResult = { [weak self] tokens, text in
+        systemRecognizer.onFinalResult = { [weak self] tokens, text, rawSpeakerLabel in
             guard let self else { return }
             guard text.split(separator: " ").count >= 2 else { return }
             let capturedAt = Date()
+            let speakerLabel = self.resolveSpeakerLabel(rawSpeakerLabel)
             Task {
-                let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, tokens: tokens, english: "")
+                let entry = TranscriptEntry(timestamp: capturedAt, source: .system, french: text, tokens: tokens, english: "", speakerLabel: speakerLabel)
                 await MainActor.run { self.store.append(entry) }
                 let (srcLang, tgtLang) = await MainActor.run {
                     (self.settings.sourceLanguage, self.settings.targetLanguage)
@@ -197,6 +205,17 @@ final class SessionManager: ObservableObject {
                 await MainActor.run { self.store.updateEnglish(for: entry.id, english: english) }
             }
         }
+    }
+
+    // Maps raw Apple speaker IDs ("0", "1", …) to "P1", "P2", …
+    // Returns nil when the OS doesn't provide a label (single-speaker or older macOS).
+    private func resolveSpeakerLabel(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        if let existing = speakerLabelMap[raw] { return existing }
+        speakerCounter += 1
+        let label = "P\(speakerCounter)"
+        speakerLabelMap[raw] = label
+        return label
     }
 
     private func requestPermissions() async {

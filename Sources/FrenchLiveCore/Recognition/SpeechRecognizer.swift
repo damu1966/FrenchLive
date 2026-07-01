@@ -18,7 +18,8 @@ final class SpeechRecognizer {
     private var lastPartialTokens: [WordToken] = []
 
     var onPartialResult: ((String) -> Void)?
-    var onFinalResult: (([WordToken], String) -> Void)?
+    // Third param is the raw speaker label ("0", "1", …) from Apple; nil when unavailable.
+    var onFinalResult: (([WordToken], String, String?) -> Void)?
     var onError: ((Error) -> Void)?
 
     func start(locale: Locale) {
@@ -65,6 +66,9 @@ final class SpeechRecognizer {
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
+        // requiresSpeakerIdentification isn't in the macOS public SDK headers but
+        // exists at runtime on macOS 14+. Use KVC; silently ignored on older OS.
+        (req as AnyObject).setValue(true, forKey: "requiresSpeakerIdentification")
 
         // Swap to new request first so appendBuffer never sees nil between segments.
         let oldRequest = self.request
@@ -88,10 +92,7 @@ final class SpeechRecognizer {
                     self.lastPartialText = ""
                     self.lastPartialTokens = []
                     if !text.isEmpty {
-                        let tokens = transcription.segments.map {
-                            WordToken(word: $0.substring, confidence: $0.confidence)
-                        }
-                        self.onFinalResult?(tokens, text)
+                        self.emitFinalResult(from: transcription)
                     }
                     if let rec = self.recognizer {
                         self.startTask(with: rec, locale: locale)
@@ -118,7 +119,7 @@ final class SpeechRecognizer {
                     self.lastPartialText = ""
                     self.lastPartialTokens = []
                     if !savedText.isEmpty {
-                        self.onFinalResult?(savedTokens, savedText)
+                        self.onFinalResult?(savedTokens, savedText, nil)
                     }
 
                     // Restart via zero-gap startTask so no audio is dropped.
@@ -136,6 +137,38 @@ final class SpeechRecognizer {
 
         // End old request after new task is already receiving audio.
         oldRequest?.endAudio()
+    }
+
+    // MARK: - Speaker-aware result emission
+
+    // Groups consecutive segments by speakerLabel and calls onFinalResult once per
+    // contiguous speaker run. Falls back to a single call when diarization is off.
+    private func emitFinalResult(from transcription: SFTranscription) {
+        let segments = transcription.segments
+        guard !segments.isEmpty else { return }
+
+        // speakerLabel isn't in the macOS public SDK but exists at runtime on macOS 14+.
+        // Build contiguous speaker groups; each group emits one onFinalResult call.
+        struct Group {
+            var label: String?
+            var tokens: [WordToken] = []
+        }
+        var groups: [Group] = []
+        for seg in segments {
+            let rawLabel = (seg as AnyObject).value(forKey: "speakerLabel") as? String
+            let label = rawLabel.flatMap { $0.isEmpty ? nil : $0 }
+            let token = WordToken(word: seg.substring, confidence: seg.confidence)
+            if !groups.isEmpty && groups[groups.count - 1].label == label {
+                groups[groups.count - 1].tokens.append(token)
+            } else {
+                groups.append(Group(label: label, tokens: [token]))
+            }
+        }
+        for group in groups {
+            let groupText = group.tokens.map { $0.word }.joined(separator: " ")
+            guard !groupText.isEmpty else { continue }
+            onFinalResult?(group.tokens, groupText, group.label)
+        }
     }
 
     // MARK: - Silence detection

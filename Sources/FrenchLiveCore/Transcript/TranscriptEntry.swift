@@ -17,6 +17,7 @@ struct TranscriptEntry: Identifiable, Equatable {
     let french: String          // full formatted string (used for file output and search)
     let tokens: [WordToken]     // per-word confidence; empty means no data available
     var english: String
+    let speakerLabel: String?   // "P1", "P2", … when diarization is active; nil otherwise
 
     // Convenience init — no confidence data (tests, file writer, placeholders).
     init(timestamp: Date, source: AudioSource, french: String, english: String) {
@@ -25,14 +26,16 @@ struct TranscriptEntry: Identifiable, Equatable {
         self.french = french
         self.tokens = []
         self.english = english
+        self.speakerLabel = nil
     }
 
     // Full init with per-word confidence tokens from SFSpeech.
-    init(timestamp: Date, source: AudioSource, french: String, tokens: [WordToken], english: String) {
+    init(timestamp: Date, source: AudioSource, french: String, tokens: [WordToken], english: String, speakerLabel: String? = nil) {
         self.timestamp = timestamp
         self.source = source
         self.french = french
         self.tokens = tokens
         self.english = english
+        self.speakerLabel = speakerLabel
     }
 }

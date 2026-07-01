@@ -296,15 +296,30 @@ struct TranscriptRowView: View {
 
     @ViewBuilder
     private var sourceIcon: some View {
-        switch entry.source {
-        case .mic:
-            Image(systemName: "mic.fill")
-                .font(.caption)
-                .foregroundStyle(.blue)
-        case .system:
-            Image(systemName: "speaker.wave.2.fill")
-                .font(.caption)
-                .foregroundStyle(.orange)
+        if let label = entry.speakerLabel {
+            Text(label)
+                .font(.caption2.bold())
+                .foregroundStyle(speakerColor(label))
+        } else {
+            switch entry.source {
+            case .mic:
+                Image(systemName: "mic.fill")
+                    .font(.caption)
+                    .foregroundStyle(.blue)
+            case .system:
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func speakerColor(_ label: String) -> Color {
+        switch label {
+        case "P1": return .blue
+        case "P2": return .green
+        case "P3": return .orange
+        default:   return .purple
         }
     }
 }
