@@ -8,21 +8,44 @@ import Translation
 actor Translator {
     private var _session: Any?
 
-    // Reused across all calls — JSONDecoder allocation is not free.
     private static let jsonDecoder = JSONDecoder()
-
-    // Short timeout: MyMemory is best-effort; show "[translation unavailable]"
-    // quickly rather than leaving the entry showing "…" for 60 seconds.
     private static let urlSession: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 5
-        config.timeoutIntervalForResource = 10
+        config.timeoutIntervalForRequest = 8
+        config.timeoutIntervalForResource = 15
         return URLSession(configuration: config)
     }()
 
     @available(macOS 15.0, *)
     func setSession(_ session: TranslationSession) {
         _session = session
+    }
+
+    // GCD-based translation — zero Swift Concurrency, works on macOS 26 where
+    // actor executor scheduling is broken. Completion always called on main thread.
+    nonisolated func translateGCD(_ text: String,
+                                  from sourceLanguage: String = "fr-FR",
+                                  to targetLanguage: String = "en",
+                                  completion: @escaping (String) -> Void) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { completion(""); return }
+
+        let srcCode = sourceLanguage.components(separatedBy: "-").first ?? "fr"
+        guard let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://api.mymemory.translated.net/get?q=\(encoded)&langpair=\(srcCode)|\(targetLanguage)")
+        else { DispatchQueue.main.async { completion("[translation unavailable]") }; return }
+
+        Self.urlSession.dataTask(with: url) { data, _, _ in
+            let english: String
+            if let data,
+               let decoded = try? Self.jsonDecoder.decode(MyMemoryResponse.self, from: data),
+               !decoded.responseData.translatedText.isEmpty {
+                english = decoded.responseData.translatedText
+            } else {
+                english = "[translation unavailable]"
+            }
+            DispatchQueue.main.async { completion(english) }
+        }.resume()
     }
 
     func translate(_ text: String, from sourceLanguage: String = "fr-FR", to targetLanguage: String = "en") async -> String {

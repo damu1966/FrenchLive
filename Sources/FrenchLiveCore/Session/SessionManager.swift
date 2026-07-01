@@ -169,21 +169,20 @@ final class SessionManager: ObservableObject {
             guard let self else { return }
             guard text.split(separator: " ").count >= 2 else { return }
             let capturedAt = Date()
-            // Use DispatchQueue.main instead of Task+MainActor.run — the latter
-            // relies on Swift Concurrency executor checks that are broken on macOS 26.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 let entry = TranscriptEntry(timestamp: capturedAt, source: .mic,
                                             french: text, tokens: tokens, english: "")
                 self.store.append(entry)
-                let entryID  = entry.id
-                let srcLang  = self.settings.sourceLanguage
-                let tgtLang  = self.settings.targetLanguage
-                let store    = self.store
+                let entryID    = entry.id
+                let store      = self.store
                 let translator = self.translator
-                Task.detached {
-                    let english = await translator.translate(text, from: srcLang, to: tgtLang)
-                    DispatchQueue.main.async { store.updateEnglish(for: entryID, english: english) }
+                let srcLang    = self.settings.sourceLanguage
+                let tgtLang    = self.settings.targetLanguage
+                // translateGCD uses URLSession.dataTask — no Swift Concurrency,
+                // no actor executor — reliable on macOS 26.
+                translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
+                    store.updateEnglish(for: entryID, english: english)
                 }
             }
         }
@@ -206,14 +205,13 @@ final class SessionManager: ObservableObject {
                 let entry = TranscriptEntry(timestamp: capturedAt, source: .system,
                                             french: text, tokens: tokens, english: "")
                 self.store.append(entry)
-                let entryID  = entry.id
-                let srcLang  = self.settings.sourceLanguage
-                let tgtLang  = self.settings.targetLanguage
-                let store    = self.store
+                let entryID    = entry.id
+                let store      = self.store
                 let translator = self.translator
-                Task.detached {
-                    let english = await translator.translate(text, from: srcLang, to: tgtLang)
-                    DispatchQueue.main.async { store.updateEnglish(for: entryID, english: english) }
+                let srcLang    = self.settings.sourceLanguage
+                let tgtLang    = self.settings.targetLanguage
+                translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
+                    store.updateEnglish(for: entryID, english: english)
                 }
             }
         }
