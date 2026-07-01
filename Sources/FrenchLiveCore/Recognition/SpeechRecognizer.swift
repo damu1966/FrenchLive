@@ -64,7 +64,7 @@ final class SpeechRecognizer {
     private func startTask(with rec: SFSpeechRecognizer, locale: Locale) {
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
-        req.requiresOnDeviceRecognition = false
+        req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
 
         // Swap to new request first so appendBuffer never sees nil between segments.
         let oldRequest = self.request
@@ -74,7 +74,8 @@ final class SpeechRecognizer {
         // that would call stop() and fight the new task we just created.
         self.task = nil
 
-        print("FrenchLive: starting recognition task")
+        let mode = rec.supportsOnDeviceRecognition ? "on-device" : "server"
+        print("FrenchLive: starting recognition task (\(mode))")
         task = rec.recognitionTask(with: req) { [weak self] result, error in
             guard let self else { return }
             var restarted = false
