@@ -72,6 +72,11 @@ public struct ContentView: View {
 
     // MARK: - Transcript scroll view
 
+    // After a sentence commits we hold the scroll on that entry so the user can
+    // read the French text and watch the English translation arrive. The live-row
+    // scroll is suppressed for this window; once it expires normal following resumes.
+    @State private var liveScrollSuppressedUntil: Date = .distantPast
+
     private var transcriptScrollView: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -95,11 +100,15 @@ public struct ContentView: View {
                         proxy.scrollTo("live", anchor: .bottom)
                     }
                 }
+                // Suppress live-row scroll for 2 s so translation has time to arrive
+                // and remain visible before the next live row steals focus.
+                liveScrollSuppressedUntil = Date().addingTimeInterval(2.0)
             }
             // Only scroll to live row when it first appears (liveText was empty
             // and is now non-empty). Avoids 5-10 animations/second during speech.
+            // Suppressed briefly after each sentence commit (see above).
             .onChange(of: store.liveText.isEmpty) { isEmpty in
-                if !isEmpty {
+                if !isEmpty && Date() > liveScrollSuppressedUntil {
                     withAnimation { proxy.scrollTo("live", anchor: .bottom) }
                 }
             }
