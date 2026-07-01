@@ -5,8 +5,6 @@ final class TranscriptStore: ObservableObject {
     @Published private(set) var entries: [TranscriptEntry] = []
     @Published var liveText: String = ""
     @Published var liveSource: AudioSource? = nil
-    // Set each time a translation arrives so the scroll view can reveal it.
-    @Published var lastTranslatedId: UUID? = nil
 
     // O(1) lookup by entry ID instead of O(n) linear scan.
     private var indexByID: [UUID: Int] = [:]
@@ -21,7 +19,6 @@ final class TranscriptStore: ObservableObject {
     func updateEnglish(for id: UUID, english: String) {
         guard let index = indexByID[id] else { return }
         entries[index].english = english
-        lastTranslatedId = id
     }
 
     func clear() {
