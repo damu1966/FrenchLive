@@ -11,6 +11,11 @@ final class SpeechRecognizer {
     private var silenceWorkItem: DispatchWorkItem?
     // 3 s lets conversational turn-taking finish naturally before forcing a cut.
     private static let silenceTimeout: TimeInterval = 3.0
+    // Push a translation every N words instead of waiting out a full silence,
+    // so long monologues start showing English quickly.
+    private static let wordFlushThreshold = 6
+    // Short grace period so the Nth word is fully confirmed before we cut.
+    private static let wordFlushDelay: TimeInterval = 0.3
 
     // Last partial result accumulated during the current task — rescued if the
     // task errors out before it can send a proper isFinal result.
@@ -102,7 +107,12 @@ final class SpeechRecognizer {
                         WordToken(word: $0.substring, confidence: $0.confidence)
                     }
                     self.onPartialResult?(text)
-                    self.scheduleSilenceEnd()
+                    let wordCount = text.split(separator: " ").count
+                    if wordCount >= Self.wordFlushThreshold {
+                        self.scheduleFlush(after: Self.wordFlushDelay)
+                    } else {
+                        self.scheduleFlush(after: Self.silenceTimeout)
+                    }
                 }
             }
             if let error = error {
@@ -147,7 +157,7 @@ final class SpeechRecognizer {
 
     // MARK: - Silence detection
 
-    private func scheduleSilenceEnd() {
+    private func scheduleFlush(after delay: TimeInterval) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.silenceWorkItem?.cancel()
@@ -155,8 +165,7 @@ final class SpeechRecognizer {
                 self?.request?.endAudio()
             }
             self.silenceWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + SpeechRecognizer.silenceTimeout,
-                                          execute: item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
         }
     }
 
