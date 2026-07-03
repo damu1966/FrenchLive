@@ -31,8 +31,17 @@ actor Translator {
         guard !trimmed.isEmpty else { completion(""); return }
 
         let srcCode = sourceLanguage.components(separatedBy: "-").first ?? "fr"
-        guard let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://api.mymemory.translated.net/get?q=\(encoded)&langpair=\(srcCode)|\(targetLanguage)")
+        // URLComponents percent-encodes q and langpair independently and correctly.
+        // Manually pre-encoding q and interpolating it next to the raw "|" in
+        // langpair made URL(string:) fall back to a compatibility re-encoding pass
+        // that double-escaped the already-encoded text (%20 -> %2520), which
+        // MyMemory's tokenizer then mangled mid-translation.
+        var components = URLComponents(string: "https://api.mymemory.translated.net/get")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: trimmed),
+            URLQueryItem(name: "langpair", value: "\(srcCode)|\(targetLanguage)")
+        ]
+        guard let url = components.url
         else { DispatchQueue.main.async { completion("[translation unavailable]") }; return }
 
         Self.urlSession.dataTask(with: url) { data, _, _ in
@@ -40,12 +49,27 @@ actor Translator {
             if let data,
                let decoded = try? Self.jsonDecoder.decode(MyMemoryResponse.self, from: data),
                !decoded.responseData.translatedText.isEmpty {
-                english = decoded.responseData.translatedText
+                english = Self.formatEnglish(decoded.responseData.translatedText)
             } else {
                 english = "[translation unavailable]"
             }
             DispatchQueue.main.async { completion(english) }
         }.resume()
+    }
+
+    // Chunks arrive as raw MyMemory/Apple output — normalize whitespace, decode
+    // HTML entities the API sometimes leaves in, and capitalize the lead word so
+    // consecutive 6-word chunks read as clean, consistent English.
+    private static func formatEnglish(_ text: String) -> String {
+        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !result.isEmpty else { return result }
+        for (entity, replacement) in [("&#39;", "'"), ("&quot;", "\""), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">")] {
+            result = result.replacingOccurrences(of: entity, with: replacement)
+        }
+        while result.contains("  ") {
+            result = result.replacingOccurrences(of: "  ", with: " ")
+        }
+        return result.prefix(1).uppercased() + result.dropFirst()
     }
 
     func translate(_ text: String, from sourceLanguage: String = "fr-FR", to targetLanguage: String = "en") async -> String {
@@ -82,7 +106,7 @@ actor Translator {
                 print("FrenchLive: Apple translation returned empty string")
                 return ""   // signal caller to try MyMemory
             }
-            return result
+            return Self.formatEnglish(result)
         } catch {
             print("FrenchLive: Apple translation error/timeout: \(error)")
             return ""       // signal caller to try MyMemory
@@ -91,14 +115,19 @@ actor Translator {
 
     private func translateWithMyMemory(_ text: String, from sourceLanguage: String, to targetLanguage: String) async -> String {
         let sourceLangCode = sourceLanguage.components(separatedBy: "-").first ?? "fr"
-        guard let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://api.mymemory.translated.net/get?q=\(encoded)&langpair=\(sourceLangCode)|\(targetLanguage)")
+        var components = URLComponents(string: "https://api.mymemory.translated.net/get")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: text),
+            URLQueryItem(name: "langpair", value: "\(sourceLangCode)|\(targetLanguage)")
+        ]
+        guard let url = components.url
         else { return "[translation unavailable]" }
 
         do {
             let (data, _) = try await Self.urlSession.data(from: url)
             let decoded = try Self.jsonDecoder.decode(MyMemoryResponse.self, from: data)
-            return decoded.responseData.translatedText
+            guard !decoded.responseData.translatedText.isEmpty else { return "[translation unavailable]" }
+            return Self.formatEnglish(decoded.responseData.translatedText)
         } catch {
             return "[translation unavailable]"
         }
