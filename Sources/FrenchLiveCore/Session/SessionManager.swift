@@ -188,24 +188,34 @@ final class SessionManager: ObservableObject {
                 guard let self else { return }
                 let flush = PendingFlush(text: text, english: nil, entryID: nil)
                 self.pendingMicFlushes.append(flush)
+                print("FrenchLive: [debug] mic onFlushReady appended id=\(flush.id) text=\"\(text)\" queueSize=\(self.pendingMicFlushes.count)")
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
                 translator.translateGCD(text, from: srcLang, to: tgtLang) { [weak self] english in
                     guard let self,
                           let idx = self.pendingMicFlushes.firstIndex(where: { $0.id == flush.id })
-                    else { return }
+                    else {
+                        print("FrenchLive: [debug] mic speculative translate completed id=\(flush.id) but flush no longer in queue (dropped)")
+                        return
+                    }
                     self.pendingMicFlushes[idx].english = english
                     if let id = self.pendingMicFlushes[idx].entryID {
+                        print("FrenchLive: [debug] mic speculative translate completed id=\(flush.id) entryID=\(id) -> applied")
                         self.store.updateEnglish(for: id, english: english)
                         self.pendingMicFlushes.remove(at: idx)
+                    } else {
+                        print("FrenchLive: [debug] mic speculative translate completed id=\(flush.id) but no entryID claimed yet — left in queue")
                     }
                 }
             }
         }
         micRecognizer.onFinalResult = { [weak self] tokens, text, _ in
             guard let self else { return }
-            guard text.split(separator: " ").count >= 2 else { return }
+            guard text.split(separator: " ").count >= 2 else {
+                print("FrenchLive: [debug] mic onFinalResult DROPPED (short text, <2 words) text=\"\(text)\"")
+                return
+            }
             let capturedAt = Date()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -219,7 +229,9 @@ final class SessionManager: ObservableObject {
                 let tgtLang    = self.settings.targetLanguage
                 let matchIndex = matchingFlushIndex(in: self.pendingMicFlushes, finalText: text)
                 let pending    = matchIndex.map { self.pendingMicFlushes[$0] }
-                switch resolveFlush(pending, finalText: text) {
+                let resolution = resolveFlush(pending, finalText: text)
+                print("FrenchLive: [debug] mic onFinalResult entryID=\(entryID) text=\"\(text)\" matchIndex=\(matchIndex.map(String.init) ?? "nil") queueSize=\(self.pendingMicFlushes.count) resolution=\(resolution)")
+                switch resolution {
                 case .ready(let english):
                     if let idx = matchIndex { self.pendingMicFlushes.remove(at: idx) }
                     store.updateEnglish(for: entryID, english: english)
@@ -228,7 +240,9 @@ final class SessionManager: ObservableObject {
                 case .none:
                     // translateGCD uses URLSession.dataTask — no Swift Concurrency,
                     // no actor executor — reliable on macOS 26.
+                    print("FrenchLive: [debug] mic onFinalResult falling back to fresh translateGCD entryID=\(entryID)")
                     translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
+                        print("FrenchLive: [debug] mic fallback translate completed entryID=\(entryID)")
                         store.updateEnglish(for: entryID, english: english)
                     }
                 }
@@ -249,24 +263,34 @@ final class SessionManager: ObservableObject {
                 guard let self else { return }
                 let flush = PendingFlush(text: text, english: nil, entryID: nil)
                 self.pendingSystemFlushes.append(flush)
+                print("FrenchLive: [debug] system onFlushReady appended id=\(flush.id) text=\"\(text)\" queueSize=\(self.pendingSystemFlushes.count)")
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
                 translator.translateGCD(text, from: srcLang, to: tgtLang) { [weak self] english in
                     guard let self,
                           let idx = self.pendingSystemFlushes.firstIndex(where: { $0.id == flush.id })
-                    else { return }
+                    else {
+                        print("FrenchLive: [debug] system speculative translate completed id=\(flush.id) but flush no longer in queue (dropped)")
+                        return
+                    }
                     self.pendingSystemFlushes[idx].english = english
                     if let id = self.pendingSystemFlushes[idx].entryID {
+                        print("FrenchLive: [debug] system speculative translate completed id=\(flush.id) entryID=\(id) -> applied")
                         self.store.updateEnglish(for: id, english: english)
                         self.pendingSystemFlushes.remove(at: idx)
+                    } else {
+                        print("FrenchLive: [debug] system speculative translate completed id=\(flush.id) but no entryID claimed yet — left in queue")
                     }
                 }
             }
         }
         systemRecognizer.onFinalResult = { [weak self] tokens, text, _ in
             guard let self else { return }
-            guard text.split(separator: " ").count >= 2 else { return }
+            guard text.split(separator: " ").count >= 2 else {
+                print("FrenchLive: [debug] system onFinalResult DROPPED (short text, <2 words) text=\"\(text)\"")
+                return
+            }
             let capturedAt = Date()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -280,14 +304,18 @@ final class SessionManager: ObservableObject {
                 let tgtLang    = self.settings.targetLanguage
                 let matchIndex = matchingFlushIndex(in: self.pendingSystemFlushes, finalText: text)
                 let pending    = matchIndex.map { self.pendingSystemFlushes[$0] }
-                switch resolveFlush(pending, finalText: text) {
+                let resolution = resolveFlush(pending, finalText: text)
+                print("FrenchLive: [debug] system onFinalResult entryID=\(entryID) text=\"\(text)\" matchIndex=\(matchIndex.map(String.init) ?? "nil") queueSize=\(self.pendingSystemFlushes.count) resolution=\(resolution)")
+                switch resolution {
                 case .ready(let english):
                     if let idx = matchIndex { self.pendingSystemFlushes.remove(at: idx) }
                     store.updateEnglish(for: entryID, english: english)
                 case .pendingText:
                     if let idx = matchIndex { self.pendingSystemFlushes[idx].entryID = entryID }
                 case .none:
+                    print("FrenchLive: [debug] system onFinalResult falling back to fresh translateGCD entryID=\(entryID)")
                     translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
+                        print("FrenchLive: [debug] system fallback translate completed entryID=\(entryID)")
                         store.updateEnglish(for: entryID, english: english)
                     }
                 }
