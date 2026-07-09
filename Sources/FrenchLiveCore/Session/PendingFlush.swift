@@ -7,6 +7,7 @@ import Foundation
 // transcript text is confirmed — this tracks that guess so it can be
 // reused (or discarded) once the real final text arrives.
 struct PendingFlush {
+    let id = UUID()
     let text: String
     var english: String?
     var entryID: UUID?

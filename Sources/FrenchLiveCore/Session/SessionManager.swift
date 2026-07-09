@@ -30,11 +30,15 @@ final class SessionManager: ObservableObject {
     private var speakerLabelMap: [String: String] = [:]
     private var speakerCounter = 0
 
-    // Speculative in-flight translations, one per recognizer stream — kicked
-    // off by SpeechRecognizer.onFlushReady before the final transcript text
-    // is confirmed. See PendingFlush.swift.
-    private var pendingMicFlush: PendingFlush?
-    private var pendingSystemFlush: PendingFlush?
+    // Speculative in-flight translations, one queue per recognizer stream —
+    // kicked off by SpeechRecognizer.onFlushReady before the final transcript
+    // text is confirmed. A queue, not a single slot: the next chunk's flush
+    // can fire before the previous chunk's translation call returns (MyMemory
+    // latency can exceed the time it takes to speak 6 more words), so more
+    // than one speculative translation can be in flight at once. See
+    // PendingFlush.swift.
+    private var pendingMicFlushes: [PendingFlush] = []
+    private var pendingSystemFlushes: [PendingFlush] = []
 
     init(store: TranscriptStore, translator: Translator, settings: SettingsStore) {
         self.store = store
@@ -90,6 +94,8 @@ final class SessionManager: ObservableObject {
         guard state == .recording else { return }
         store.liveText = ""
         store.liveSource = nil
+        pendingMicFlushes.removeAll()
+        pendingSystemFlushes.removeAll()
         state = .paused
     }
 
@@ -149,6 +155,8 @@ final class SessionManager: ObservableObject {
         sessionStartDate = nil
         store.liveText = ""
         store.liveSource = nil
+        pendingMicFlushes.removeAll()
+        pendingSystemFlushes.removeAll()
         state = .idle
     }
 
@@ -173,20 +181,24 @@ final class SessionManager: ObservableObject {
         }
         // Fires right before SpeechRecognizer cuts the chunk — start translating
         // now instead of waiting for isFinal, so recognizer finalization and the
-        // MyMemory round-trip run concurrently.
+        // MyMemory round-trip run concurrently. Appended to a queue (not a single
+        // slot) since more than one flush can be in flight at once.
         micRecognizer.onFlushReady = { [weak self] text in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.pendingMicFlush = PendingFlush(text: text, english: nil, entryID: nil)
+                let flush = PendingFlush(text: text, english: nil, entryID: nil)
+                self.pendingMicFlushes.append(flush)
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
                 translator.translateGCD(text, from: srcLang, to: tgtLang) { [weak self] english in
-                    guard let self, self.pendingMicFlush?.text == text else { return }
-                    self.pendingMicFlush?.english = english
-                    if let id = self.pendingMicFlush?.entryID {
+                    guard let self,
+                          let idx = self.pendingMicFlushes.firstIndex(where: { $0.id == flush.id })
+                    else { return }
+                    self.pendingMicFlushes[idx].english = english
+                    if let id = self.pendingMicFlushes[idx].entryID {
                         self.store.updateEnglish(for: id, english: english)
-                        self.pendingMicFlush = nil
+                        self.pendingMicFlushes.remove(at: idx)
                     }
                 }
             }
@@ -205,14 +217,15 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                switch resolveFlush(self.pendingMicFlush, finalText: text) {
+                let matchIndex = self.pendingMicFlushes.firstIndex(where: { $0.text == text })
+                let pending    = matchIndex.map { self.pendingMicFlushes[$0] }
+                switch resolveFlush(pending, finalText: text) {
                 case .ready(let english):
-                    self.pendingMicFlush = nil
+                    if let idx = matchIndex { self.pendingMicFlushes.remove(at: idx) }
                     store.updateEnglish(for: entryID, english: english)
                 case .pendingText:
-                    self.pendingMicFlush?.entryID = entryID
+                    if let idx = matchIndex { self.pendingMicFlushes[idx].entryID = entryID }
                 case .none:
-                    self.pendingMicFlush = nil
                     // translateGCD uses URLSession.dataTask — no Swift Concurrency,
                     // no actor executor — reliable on macOS 26.
                     translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
@@ -234,16 +247,19 @@ final class SessionManager: ObservableObject {
         systemRecognizer.onFlushReady = { [weak self] text in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.pendingSystemFlush = PendingFlush(text: text, english: nil, entryID: nil)
+                let flush = PendingFlush(text: text, english: nil, entryID: nil)
+                self.pendingSystemFlushes.append(flush)
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
                 translator.translateGCD(text, from: srcLang, to: tgtLang) { [weak self] english in
-                    guard let self, self.pendingSystemFlush?.text == text else { return }
-                    self.pendingSystemFlush?.english = english
-                    if let id = self.pendingSystemFlush?.entryID {
+                    guard let self,
+                          let idx = self.pendingSystemFlushes.firstIndex(where: { $0.id == flush.id })
+                    else { return }
+                    self.pendingSystemFlushes[idx].english = english
+                    if let id = self.pendingSystemFlushes[idx].entryID {
                         self.store.updateEnglish(for: id, english: english)
-                        self.pendingSystemFlush = nil
+                        self.pendingSystemFlushes.remove(at: idx)
                     }
                 }
             }
@@ -262,14 +278,15 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                switch resolveFlush(self.pendingSystemFlush, finalText: text) {
+                let matchIndex = self.pendingSystemFlushes.firstIndex(where: { $0.text == text })
+                let pending    = matchIndex.map { self.pendingSystemFlushes[$0] }
+                switch resolveFlush(pending, finalText: text) {
                 case .ready(let english):
-                    self.pendingSystemFlush = nil
+                    if let idx = matchIndex { self.pendingSystemFlushes.remove(at: idx) }
                     store.updateEnglish(for: entryID, english: english)
                 case .pendingText:
-                    self.pendingSystemFlush?.entryID = entryID
+                    if let idx = matchIndex { self.pendingSystemFlushes[idx].entryID = entryID }
                 case .none:
-                    self.pendingSystemFlush = nil
                     translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
                         store.updateEnglish(for: entryID, english: english)
                     }
