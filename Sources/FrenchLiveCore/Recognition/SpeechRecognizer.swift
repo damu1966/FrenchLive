@@ -113,9 +113,9 @@ final class SpeechRecognizer {
                     self.onPartialResult?(text)
                     let wordCount = text.split(separator: " ").count
                     if wordCount >= Self.wordFlushThreshold {
-                        self.scheduleFlush(text: text, after: Self.wordFlushDelay)
+                        self.scheduleFlush(text: text, after: Self.wordFlushDelay, reason: "wordThreshold")
                     } else {
-                        self.scheduleFlush(text: text, after: Self.silenceTimeout)
+                        self.scheduleFlush(text: text, after: Self.silenceTimeout, reason: "silence")
                     }
                 }
             }
@@ -123,6 +123,15 @@ final class SpeechRecognizer {
                 let nsError = error as NSError
                 print("FrenchLive: recognition error \(nsError.domain) \(nsError.code): \(nsError.localizedDescription)")
                 if !restarted {
+                    // A short utterance (<6 words) schedules its flush after a long
+                    // silenceTimeout (3s). If the recognizer errors out (e.g. "no
+                    // speech detected") before that timer fires — common during a
+                    // long pause — the timer is left dangling. Left alone, it later
+                    // fires against the NEW request created below, calling endAudio()
+                    // on whatever the user is saying next and truncating it. Cancel it
+                    // now so the fresh task below starts with no stale timer armed.
+                    self.cancelSilenceTimer()
+
                     // Rescue any partial text the task accumulated before erroring
                     // so the sentence isn't silently dropped from the transcript.
                     let savedText = self.lastPartialText
@@ -161,12 +170,13 @@ final class SpeechRecognizer {
 
     // MARK: - Silence detection
 
-    private func scheduleFlush(text: String, after delay: TimeInterval) {
+    private func scheduleFlush(text: String, after delay: TimeInterval, reason: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.silenceWorkItem?.cancel()
             let item = DispatchWorkItem { [weak self] in
                 guard let self else { return }
+                print("FrenchLive: [debug] onFlushReady firing reason=\(reason) text=\"\(text)\"")
                 self.onFlushReady?(text)
                 self.request?.endAudio()
             }
@@ -177,6 +187,9 @@ final class SpeechRecognizer {
 
     private func cancelSilenceTimer() {
         DispatchQueue.main.async { [weak self] in
+            if self?.silenceWorkItem != nil {
+                print("FrenchLive: [debug] cancelSilenceTimer — cancelled a scheduled flush before it fired (onFlushReady never fired for that utterance)")
+            }
             self?.silenceWorkItem?.cancel()
             self?.silenceWorkItem = nil
         }
