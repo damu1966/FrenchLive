@@ -15,7 +15,7 @@ final class SpeechRecognizer {
     // so long monologues start showing English quickly.
     private static let wordFlushThreshold = 6
     // Short grace period so the Nth word is fully confirmed before we cut.
-    private static let wordFlushDelay: TimeInterval = 0.3
+    private static let wordFlushDelay: TimeInterval = 0.15
 
     // Last partial result accumulated during the current task — rescued if the
     // task errors out before it can send a proper isFinal result.
@@ -26,6 +26,10 @@ final class SpeechRecognizer {
     // Third param is the raw speaker label ("0", "1", …) from Apple; nil when unavailable.
     var onFinalResult: (([WordToken], String, String?) -> Void)?
     var onError: ((Error) -> Void)?
+    // Fired the instant a chunk is about to be cut (right before endAudio()), with
+    // the snapshotted text — lets the caller start translating in parallel with
+    // SFSpeechRecognizer's finalization instead of waiting for isFinal first.
+    var onFlushReady: ((String) -> Void)?
 
     func start(locale: Locale) {
         guard !isRunning else { return }
@@ -109,9 +113,9 @@ final class SpeechRecognizer {
                     self.onPartialResult?(text)
                     let wordCount = text.split(separator: " ").count
                     if wordCount >= Self.wordFlushThreshold {
-                        self.scheduleFlush(after: Self.wordFlushDelay)
+                        self.scheduleFlush(text: text, after: Self.wordFlushDelay)
                     } else {
-                        self.scheduleFlush(after: Self.silenceTimeout)
+                        self.scheduleFlush(text: text, after: Self.silenceTimeout)
                     }
                 }
             }
@@ -157,12 +161,14 @@ final class SpeechRecognizer {
 
     // MARK: - Silence detection
 
-    private func scheduleFlush(after delay: TimeInterval) {
+    private func scheduleFlush(text: String, after delay: TimeInterval) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.silenceWorkItem?.cancel()
             let item = DispatchWorkItem { [weak self] in
-                self?.request?.endAudio()
+                guard let self else { return }
+                self.onFlushReady?(text)
+                self.request?.endAudio()
             }
             self.silenceWorkItem = item
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
