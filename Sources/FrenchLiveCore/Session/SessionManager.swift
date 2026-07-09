@@ -182,38 +182,52 @@ final class SessionManager: ObservableObject {
         // Fires right before SpeechRecognizer cuts the chunk — start translating
         // now instead of waiting for isFinal, so recognizer finalization and the
         // MyMemory round-trip run concurrently. Appended to a queue (not a single
-        // slot) since more than one flush can be in flight at once.
-        micRecognizer.onFlushReady = { [weak self] text in
+        // slot) since more than one flush can be in flight at once. flushID is
+        // minted by SpeechRecognizer and is the ONLY thing used to reunite this
+        // entry with its final — never text, never queue position (both failed
+        // in production; see PendingFlush.swift).
+        micRecognizer.onFlushReady = { [weak self] flushID, text in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                let flush = PendingFlush(text: text, english: nil, entryID: nil)
+                let flush = PendingFlush(id: flushID, text: text, english: nil, entryID: nil)
                 self.pendingMicFlushes.append(flush)
-                print("FrenchLive: [debug] mic onFlushReady appended id=\(flush.id) text=\"\(text)\" queueSize=\(self.pendingMicFlushes.count)")
+                print("FrenchLive: [debug] mic onFlushReady appended id=\(flushID) text=\"\(text)\" queueSize=\(self.pendingMicFlushes.count)")
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
                 translator.translateGCD(text, from: srcLang, to: tgtLang) { [weak self] english in
                     guard let self,
-                          let idx = self.pendingMicFlushes.firstIndex(where: { $0.id == flush.id })
+                          let idx = self.pendingMicFlushes.firstIndex(where: { $0.id == flushID })
                     else {
-                        print("FrenchLive: [debug] mic speculative translate completed id=\(flush.id) but flush no longer in queue (dropped)")
+                        print("FrenchLive: [debug] mic speculative translate completed id=\(flushID) but flush no longer in queue (dropped)")
                         return
                     }
                     self.pendingMicFlushes[idx].english = english
                     if let id = self.pendingMicFlushes[idx].entryID {
-                        print("FrenchLive: [debug] mic speculative translate completed id=\(flush.id) entryID=\(id) -> applied")
+                        print("FrenchLive: [debug] mic speculative translate completed id=\(flushID) entryID=\(id) -> applied")
                         self.store.updateEnglish(for: id, english: english)
                         self.pendingMicFlushes.remove(at: idx)
                     } else {
-                        print("FrenchLive: [debug] mic speculative translate completed id=\(flush.id) but no entryID claimed yet — left in queue")
+                        print("FrenchLive: [debug] mic speculative translate completed id=\(flushID) but no entryID claimed yet — left in queue")
                     }
                 }
             }
         }
-        micRecognizer.onFinalResult = { [weak self] tokens, text, _ in
+        micRecognizer.onFinalResult = { [weak self] tokens, text, _, flushID in
             guard let self else { return }
             guard text.split(separator: " ").count >= 2 else {
-                print("FrenchLive: [debug] mic onFinalResult DROPPED (short text, <2 words) text=\"\(text)\"")
+                print("FrenchLive: [debug] mic onFinalResult DROPPED (short text, <2 words) text=\"\(text)\" flushID=\(flushID.map(String.init) ?? "nil")")
+                // No transcript entry is created, but this final still consumed
+                // whatever flush preceded it — discard that entry by id so it
+                // doesn't linger in the queue forever.
+                if let flushID {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        if let idx = self.pendingMicFlushes.firstIndex(where: { $0.id == flushID }) {
+                            self.pendingMicFlushes.remove(at: idx)
+                        }
+                    }
+                }
                 return
             }
             let capturedAt = Date()
@@ -227,10 +241,10 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                let matchIndex = oldestUnclaimedFlushIndex(in: self.pendingMicFlushes)
+                let matchIndex = flushID.flatMap { fid in self.pendingMicFlushes.firstIndex(where: { $0.id == fid }) }
                 let pending    = matchIndex.map { self.pendingMicFlushes[$0] }
                 let resolution = resolveFlush(pending)
-                print("FrenchLive: [debug] mic onFinalResult entryID=\(entryID) text=\"\(text)\" matchIndex=\(matchIndex.map(String.init) ?? "nil") queueSize=\(self.pendingMicFlushes.count) resolution=\(resolution)")
+                print("FrenchLive: [debug] mic onFinalResult entryID=\(entryID) text=\"\(text)\" flushID=\(flushID.map(String.init) ?? "nil") queueSize=\(self.pendingMicFlushes.count) resolution=\(resolution)")
                 switch resolution {
                 case .ready(let english):
                     if let idx = matchIndex { self.pendingMicFlushes.remove(at: idx) }
@@ -258,37 +272,45 @@ final class SessionManager: ObservableObject {
         systemRecognizer.onError = { error in
             print("FrenchLive: system recognizer error: \(error)")
         }
-        systemRecognizer.onFlushReady = { [weak self] text in
+        systemRecognizer.onFlushReady = { [weak self] flushID, text in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                let flush = PendingFlush(text: text, english: nil, entryID: nil)
+                let flush = PendingFlush(id: flushID, text: text, english: nil, entryID: nil)
                 self.pendingSystemFlushes.append(flush)
-                print("FrenchLive: [debug] system onFlushReady appended id=\(flush.id) text=\"\(text)\" queueSize=\(self.pendingSystemFlushes.count)")
+                print("FrenchLive: [debug] system onFlushReady appended id=\(flushID) text=\"\(text)\" queueSize=\(self.pendingSystemFlushes.count)")
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
                 translator.translateGCD(text, from: srcLang, to: tgtLang) { [weak self] english in
                     guard let self,
-                          let idx = self.pendingSystemFlushes.firstIndex(where: { $0.id == flush.id })
+                          let idx = self.pendingSystemFlushes.firstIndex(where: { $0.id == flushID })
                     else {
-                        print("FrenchLive: [debug] system speculative translate completed id=\(flush.id) but flush no longer in queue (dropped)")
+                        print("FrenchLive: [debug] system speculative translate completed id=\(flushID) but flush no longer in queue (dropped)")
                         return
                     }
                     self.pendingSystemFlushes[idx].english = english
                     if let id = self.pendingSystemFlushes[idx].entryID {
-                        print("FrenchLive: [debug] system speculative translate completed id=\(flush.id) entryID=\(id) -> applied")
+                        print("FrenchLive: [debug] system speculative translate completed id=\(flushID) entryID=\(id) -> applied")
                         self.store.updateEnglish(for: id, english: english)
                         self.pendingSystemFlushes.remove(at: idx)
                     } else {
-                        print("FrenchLive: [debug] system speculative translate completed id=\(flush.id) but no entryID claimed yet — left in queue")
+                        print("FrenchLive: [debug] system speculative translate completed id=\(flushID) but no entryID claimed yet — left in queue")
                     }
                 }
             }
         }
-        systemRecognizer.onFinalResult = { [weak self] tokens, text, _ in
+        systemRecognizer.onFinalResult = { [weak self] tokens, text, _, flushID in
             guard let self else { return }
             guard text.split(separator: " ").count >= 2 else {
-                print("FrenchLive: [debug] system onFinalResult DROPPED (short text, <2 words) text=\"\(text)\"")
+                print("FrenchLive: [debug] system onFinalResult DROPPED (short text, <2 words) text=\"\(text)\" flushID=\(flushID.map(String.init) ?? "nil")")
+                if let flushID {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        if let idx = self.pendingSystemFlushes.firstIndex(where: { $0.id == flushID }) {
+                            self.pendingSystemFlushes.remove(at: idx)
+                        }
+                    }
+                }
                 return
             }
             let capturedAt = Date()
@@ -302,10 +324,10 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                let matchIndex = oldestUnclaimedFlushIndex(in: self.pendingSystemFlushes)
+                let matchIndex = flushID.flatMap { fid in self.pendingSystemFlushes.firstIndex(where: { $0.id == fid }) }
                 let pending    = matchIndex.map { self.pendingSystemFlushes[$0] }
                 let resolution = resolveFlush(pending)
-                print("FrenchLive: [debug] system onFinalResult entryID=\(entryID) text=\"\(text)\" matchIndex=\(matchIndex.map(String.init) ?? "nil") queueSize=\(self.pendingSystemFlushes.count) resolution=\(resolution)")
+                print("FrenchLive: [debug] system onFinalResult entryID=\(entryID) text=\"\(text)\" flushID=\(flushID.map(String.init) ?? "nil") queueSize=\(self.pendingSystemFlushes.count) resolution=\(resolution)")
                 switch resolution {
                 case .ready(let english):
                     if let idx = matchIndex { self.pendingSystemFlushes.remove(at: idx) }

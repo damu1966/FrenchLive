@@ -22,14 +22,28 @@ final class SpeechRecognizer {
     private var lastPartialText: String = ""
     private var lastPartialTokens: [WordToken] = []
 
+    // Identifies the flush (if any) that triggered the endAudio() call
+    // currently awaiting a result. Set the instant a flush fires, consumed
+    // (read once, then cleared) by whichever final/error follows — the only
+    // reliable way to tell the caller which speculative translation (if any)
+    // corresponds to this final. Matching by text or by queue position both
+    // failed in production (see onFinalResult's flushID param below); an
+    // explicit id threaded end-to-end has neither failure mode.
+    private var pendingFlushID: UUID?
+
     var onPartialResult: ((String) -> Void)?
-    // Third param is the raw speaker label ("0", "1", …) from Apple; nil when unavailable.
-    var onFinalResult: (([WordToken], String, String?) -> Void)?
+    // Third param is the raw speaker label ("0", "1", …) from Apple; nil when
+    // unavailable. Fourth param is the id of the flush that produced this
+    // final (see onFlushReady), or nil if no flush preceded it — e.g. Apple's
+    // own silence detection finalized before our flush timer fired.
+    var onFinalResult: (([WordToken], String, String?, UUID?) -> Void)?
     var onError: ((Error) -> Void)?
-    // Fired the instant a chunk is about to be cut (right before endAudio()), with
-    // the snapshotted text — lets the caller start translating in parallel with
-    // SFSpeechRecognizer's finalization instead of waiting for isFinal first.
-    var onFlushReady: ((String) -> Void)?
+    // Fired the instant a chunk is about to be cut (right before endAudio()),
+    // with a fresh id for this flush and the snapshotted text — lets the
+    // caller start translating in parallel with SFSpeechRecognizer's
+    // finalization instead of waiting for isFinal first. The id reappears in
+    // onFinalResult once this flush's result comes back.
+    var onFlushReady: ((UUID, String) -> Void)?
 
     func start(locale: Locale) {
         guard !isRunning else { return }
@@ -62,6 +76,7 @@ final class SpeechRecognizer {
         isRunning = false
         lastPartialText = ""
         lastPartialTokens = []
+        pendingFlushID = nil
         request?.endAudio()
         task?.finish()
         task = nil
@@ -132,6 +147,13 @@ final class SpeechRecognizer {
                     // now so the fresh task below starts with no stale timer armed.
                     self.cancelSilenceTimer()
 
+                    // This error follows whatever flush (if any) triggered the
+                    // endAudio() call now failing — consume it once so it
+                    // travels with the rescued final below, then clear it so a
+                    // later, unrelated final can never inherit a stale id.
+                    let flushID = self.pendingFlushID
+                    self.pendingFlushID = nil
+
                     // Rescue any partial text the task accumulated before erroring
                     // so the sentence isn't silently dropped from the transcript.
                     let savedText = self.lastPartialText
@@ -139,7 +161,7 @@ final class SpeechRecognizer {
                     self.lastPartialText = ""
                     self.lastPartialTokens = []
                     if !savedText.isEmpty {
-                        self.onFinalResult?(savedTokens, savedText, nil)
+                        self.onFinalResult?(savedTokens, savedText, nil, flushID)
                     }
 
                     // Restart via zero-gap startTask so no audio is dropped.
@@ -165,7 +187,14 @@ final class SpeechRecognizer {
         let segments = transcription.segments
         guard !segments.isEmpty else { return }
         let tokens = segments.map { WordToken(word: $0.substring, confidence: $0.confidence) }
-        onFinalResult?(tokens, transcription.formattedString, nil)
+        // Consume+clear here too: a NATURAL isFinal (Apple's own silence
+        // detection, preempting our flush timer) leaves pendingFlushID nil,
+        // which is correct — there's genuinely no speculative translation for
+        // it. Clearing unconditionally prevents a stale id from ever leaking
+        // into an unrelated later final.
+        let flushID = pendingFlushID
+        pendingFlushID = nil
+        onFinalResult?(tokens, transcription.formattedString, nil, flushID)
     }
 
     // MARK: - Silence detection
@@ -176,8 +205,10 @@ final class SpeechRecognizer {
             self.silenceWorkItem?.cancel()
             let item = DispatchWorkItem { [weak self] in
                 guard let self else { return }
-                print("FrenchLive: [debug] onFlushReady firing reason=\(reason) text=\"\(text)\"")
-                self.onFlushReady?(text)
+                let flushID = UUID()
+                self.pendingFlushID = flushID
+                print("FrenchLive: [debug] onFlushReady firing reason=\(reason) id=\(flushID) text=\"\(text)\"")
+                self.onFlushReady?(flushID, text)
                 self.request?.endAudio()
             }
             self.silenceWorkItem = item
