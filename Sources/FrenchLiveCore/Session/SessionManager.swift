@@ -30,6 +30,12 @@ final class SessionManager: ObservableObject {
     private var speakerLabelMap: [String: String] = [:]
     private var speakerCounter = 0
 
+    // Speculative in-flight translations, one per recognizer stream — kicked
+    // off by SpeechRecognizer.onFlushReady before the final transcript text
+    // is confirmed. See PendingFlush.swift.
+    private var pendingMicFlush: PendingFlush?
+    private var pendingSystemFlush: PendingFlush?
+
     init(store: TranscriptStore, translator: Translator, settings: SettingsStore) {
         self.store = store
         self.translator = translator
@@ -165,6 +171,26 @@ final class SessionManager: ObservableObject {
         micRecognizer.onError = { error in
             print("FrenchLive: mic recognizer error: \(error)")
         }
+        // Fires right before SpeechRecognizer cuts the chunk — start translating
+        // now instead of waiting for isFinal, so recognizer finalization and the
+        // MyMemory round-trip run concurrently.
+        micRecognizer.onFlushReady = { [weak self] text in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pendingMicFlush = PendingFlush(text: text, english: nil, entryID: nil)
+                let translator = self.translator
+                let srcLang    = self.settings.sourceLanguage
+                let tgtLang    = self.settings.targetLanguage
+                translator.translateGCD(text, from: srcLang, to: tgtLang) { [weak self] english in
+                    guard let self, self.pendingMicFlush?.text == text else { return }
+                    self.pendingMicFlush?.english = english
+                    if let id = self.pendingMicFlush?.entryID {
+                        self.store.updateEnglish(for: id, english: english)
+                        self.pendingMicFlush = nil
+                    }
+                }
+            }
+        }
         micRecognizer.onFinalResult = { [weak self] tokens, text, _ in
             guard let self else { return }
             guard text.split(separator: " ").count >= 2 else { return }
@@ -179,10 +205,19 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                // translateGCD uses URLSession.dataTask — no Swift Concurrency,
-                // no actor executor — reliable on macOS 26.
-                translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
+                switch resolveFlush(self.pendingMicFlush, finalText: text) {
+                case .ready(let english):
+                    self.pendingMicFlush = nil
                     store.updateEnglish(for: entryID, english: english)
+                case .pendingText:
+                    self.pendingMicFlush?.entryID = entryID
+                case .none:
+                    self.pendingMicFlush = nil
+                    // translateGCD uses URLSession.dataTask — no Swift Concurrency,
+                    // no actor executor — reliable on macOS 26.
+                    translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
+                        store.updateEnglish(for: entryID, english: english)
+                    }
                 }
             }
         }
@@ -195,6 +230,23 @@ final class SessionManager: ObservableObject {
         }
         systemRecognizer.onError = { error in
             print("FrenchLive: system recognizer error: \(error)")
+        }
+        systemRecognizer.onFlushReady = { [weak self] text in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pendingSystemFlush = PendingFlush(text: text, english: nil, entryID: nil)
+                let translator = self.translator
+                let srcLang    = self.settings.sourceLanguage
+                let tgtLang    = self.settings.targetLanguage
+                translator.translateGCD(text, from: srcLang, to: tgtLang) { [weak self] english in
+                    guard let self, self.pendingSystemFlush?.text == text else { return }
+                    self.pendingSystemFlush?.english = english
+                    if let id = self.pendingSystemFlush?.entryID {
+                        self.store.updateEnglish(for: id, english: english)
+                        self.pendingSystemFlush = nil
+                    }
+                }
+            }
         }
         systemRecognizer.onFinalResult = { [weak self] tokens, text, _ in
             guard let self else { return }
@@ -210,8 +262,17 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
+                switch resolveFlush(self.pendingSystemFlush, finalText: text) {
+                case .ready(let english):
+                    self.pendingSystemFlush = nil
                     store.updateEnglish(for: entryID, english: english)
+                case .pendingText:
+                    self.pendingSystemFlush?.entryID = entryID
+                case .none:
+                    self.pendingSystemFlush = nil
+                    translator.translateGCD(text, from: srcLang, to: tgtLang) { english in
+                        store.updateEnglish(for: entryID, english: english)
+                    }
                 }
             }
         }
