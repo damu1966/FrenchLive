@@ -128,9 +128,9 @@ final class SpeechRecognizer {
                     self.onPartialResult?(text)
                     let wordCount = text.split(separator: " ").count
                     if wordCount >= Self.wordFlushThreshold {
-                        self.scheduleFlush(text: text, after: Self.wordFlushDelay, reason: "wordThreshold")
+                        self.scheduleFlush(text: text, after: Self.wordFlushDelay)
                     } else {
-                        self.scheduleFlush(text: text, after: Self.silenceTimeout, reason: "silence")
+                        self.scheduleFlush(text: text, after: Self.silenceTimeout)
                     }
                 }
             }
@@ -199,7 +199,7 @@ final class SpeechRecognizer {
 
     // MARK: - Silence detection
 
-    private func scheduleFlush(text: String, after delay: TimeInterval, reason: String) {
+    private func scheduleFlush(text: String, after delay: TimeInterval) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.silenceWorkItem?.cancel()
@@ -207,7 +207,6 @@ final class SpeechRecognizer {
                 guard let self else { return }
                 let flushID = UUID()
                 self.pendingFlushID = flushID
-                print("FrenchLive: [debug] onFlushReady firing reason=\(reason) id=\(flushID) text=\"\(text)\"")
                 self.onFlushReady?(flushID, text)
                 self.request?.endAudio()
             }
@@ -218,9 +217,6 @@ final class SpeechRecognizer {
 
     private func cancelSilenceTimer() {
         DispatchQueue.main.async { [weak self] in
-            if self?.silenceWorkItem != nil {
-                print("FrenchLive: [debug] cancelSilenceTimer — cancelled a scheduled flush before it fired (onFlushReady never fired for that utterance)")
-            }
             self?.silenceWorkItem?.cancel()
             self?.silenceWorkItem = nil
         }
