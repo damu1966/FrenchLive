@@ -217,7 +217,7 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                let matchIndex = self.pendingMicFlushes.firstIndex(where: { $0.text == text })
+                let matchIndex = matchingFlushIndex(in: self.pendingMicFlushes, finalText: text)
                 let pending    = matchIndex.map { self.pendingMicFlushes[$0] }
                 switch resolveFlush(pending, finalText: text) {
                 case .ready(let english):
@@ -278,7 +278,7 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                let matchIndex = self.pendingSystemFlushes.firstIndex(where: { $0.text == text })
+                let matchIndex = matchingFlushIndex(in: self.pendingSystemFlushes, finalText: text)
                 let pending    = matchIndex.map { self.pendingSystemFlushes[$0] }
                 switch resolveFlush(pending, finalText: text) {
                 case .ready(let english):

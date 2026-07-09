@@ -1,5 +1,6 @@
 // Tests/FrenchLiveTests/PendingFlushTests.swift
 import Testing
+import Foundation
 @testable import FrenchLiveCore
 
 @Suite struct PendingFlushTests {
@@ -38,5 +39,39 @@ import Testing
             Issue.record("expected .pendingText, got \(result)")
             return
         }
+    }
+
+    @Test func testMatchingFlushIndexFindsUnclaimedMatch() {
+        let queue = [PendingFlush(text: "Bonjour", english: nil, entryID: nil)]
+        let index = matchingFlushIndex(in: queue, finalText: "Bonjour")
+        #expect(index == 0)
+    }
+
+    @Test func testMatchingFlushIndexReturnsNilOnTextMismatch() {
+        let queue = [PendingFlush(text: "Bonjour", english: nil, entryID: nil)]
+        let index = matchingFlushIndex(in: queue, finalText: "Bonsoir")
+        #expect(index == nil)
+    }
+
+    @Test func testMatchingFlushIndexSkipsAlreadyClaimedEntry() {
+        // Regression test: a repeated identical phrase must not steal a pending
+        // flush that an earlier final has already claimed (entryID != nil) —
+        // doing so silently starves the earlier entry of its translation forever.
+        let claimedEntryID = UUID()
+        let queue = [PendingFlush(text: "Merci beaucoup", english: nil, entryID: claimedEntryID)]
+        let index = matchingFlushIndex(in: queue, finalText: "Merci beaucoup")
+        #expect(index == nil)
+    }
+
+    @Test func testMatchingFlushIndexFindsUnclaimedMatchAfterClaimedDuplicate() {
+        // Two queue entries share identical text; the first is already claimed.
+        // The second (unclaimed) match must still be found for the new final.
+        let claimedEntryID = UUID()
+        let queue = [
+            PendingFlush(text: "Merci beaucoup", english: nil, entryID: claimedEntryID),
+            PendingFlush(text: "Merci beaucoup", english: nil, entryID: nil),
+        ]
+        let index = matchingFlushIndex(in: queue, finalText: "Merci beaucoup")
+        #expect(index == 1)
     }
 }

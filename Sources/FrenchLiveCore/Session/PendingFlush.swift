@@ -28,3 +28,16 @@ func resolveFlush(_ pending: PendingFlush?, finalText: String) -> FlushResolutio
     if let english = pending.english { return .ready(english) }
     return .pendingText
 }
+
+// Finds the oldest still-unclaimed pending flush whose speculative text
+// matches the given final text. "Unclaimed" (entryID == nil) is essential:
+// if the same short phrase is said twice before the first occurrence's
+// translation resolves, a plain text search would match the SAME queue
+// entry for both finals — the second final would silently steal it via
+// resolveFlush's .pendingText path, overwriting its entryID and leaving
+// the first entry's translation permanently unclaimed (stuck at "…"
+// forever). Restricting to unclaimed entries makes each pending flush
+// claimable by at most one entry, ever.
+func matchingFlushIndex(in queue: [PendingFlush], finalText: String) -> Int? {
+    queue.firstIndex(where: { $0.text == finalText && $0.entryID == nil })
+}
