@@ -227,9 +227,9 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                let matchIndex = matchingFlushIndex(in: self.pendingMicFlushes, finalText: text)
+                let matchIndex = oldestUnclaimedFlushIndex(in: self.pendingMicFlushes)
                 let pending    = matchIndex.map { self.pendingMicFlushes[$0] }
-                let resolution = resolveFlush(pending, finalText: text)
+                let resolution = resolveFlush(pending)
                 print("FrenchLive: [debug] mic onFinalResult entryID=\(entryID) text=\"\(text)\" matchIndex=\(matchIndex.map(String.init) ?? "nil") queueSize=\(self.pendingMicFlushes.count) resolution=\(resolution)")
                 switch resolution {
                 case .ready(let english):
@@ -302,9 +302,9 @@ final class SessionManager: ObservableObject {
                 let translator = self.translator
                 let srcLang    = self.settings.sourceLanguage
                 let tgtLang    = self.settings.targetLanguage
-                let matchIndex = matchingFlushIndex(in: self.pendingSystemFlushes, finalText: text)
+                let matchIndex = oldestUnclaimedFlushIndex(in: self.pendingSystemFlushes)
                 let pending    = matchIndex.map { self.pendingSystemFlushes[$0] }
-                let resolution = resolveFlush(pending, finalText: text)
+                let resolution = resolveFlush(pending)
                 print("FrenchLive: [debug] system onFinalResult entryID=\(entryID) text=\"\(text)\" matchIndex=\(matchIndex.map(String.init) ?? "nil") queueSize=\(self.pendingSystemFlushes.count) resolution=\(resolution)")
                 switch resolution {
                 case .ready(let english):

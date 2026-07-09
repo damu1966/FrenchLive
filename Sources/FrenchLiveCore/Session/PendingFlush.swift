@@ -19,25 +19,29 @@ enum FlushResolution {
     case none              // no usable match — caller should request a fresh translation
 }
 
-// Pure decision: given the flush that was speculatively kicked off (if any)
-// and the text SFSpeechRecognizer settled on as final, decide what
-// SessionManager should do. Kept pure/top-level so it's unit testable
+// Pure decision: given the flush claimed for this final (if any), decide
+// what SessionManager should do. Kept pure/top-level so it's unit testable
 // without spinning up SessionManager or a real SFSpeechRecognizer.
-func resolveFlush(_ pending: PendingFlush?, finalText: String) -> FlushResolution {
-    guard let pending, pending.text == finalText else { return .none }
+func resolveFlush(_ pending: PendingFlush?) -> FlushResolution {
+    guard let pending else { return .none }
     if let english = pending.english { return .ready(english) }
     return .pendingText
 }
 
-// Finds the oldest still-unclaimed pending flush whose speculative text
-// matches the given final text. "Unclaimed" (entryID == nil) is essential:
-// if the same short phrase is said twice before the first occurrence's
-// translation resolves, a plain text search would match the SAME queue
-// entry for both finals — the second final would silently steal it via
-// resolveFlush's .pendingText path, overwriting its entryID and leaving
-// the first entry's translation permanently unclaimed (stuck at "…"
-// forever). Restricting to unclaimed entries makes each pending flush
-// claimable by at most one entry, ever.
-func matchingFlushIndex(in queue: [PendingFlush], finalText: String) -> Int? {
-    queue.firstIndex(where: { $0.text == finalText && $0.entryID == nil })
+// Finds the oldest still-unclaimed pending flush for a final to claim.
+// Deliberately positional, not text-based: a SpeechRecognizer stream only
+// ever has one flush "in flight" toward finalization at a time (the next
+// chunk can't even start until the current one's final — or error-rescue
+// — has been delivered), so the very next final always belongs to the
+// oldest unclaimed flush, regardless of exact wording. Matching by text
+// failed on nearly every utterance in production: the recognizer almost
+// always revises a trailing word between the flush snapshot and the true
+// final, so exact-text equality virtually never held — every mismatch
+// silently discarded the speculative translation, forced a redundant
+// fallback network call, and left the flush orphaned in the queue forever
+// (unbounded growth over a session). "Unclaimed" (entryID == nil) still
+// matters here too: once a flush is claimed by one final, it must never
+// be claimed by another, or the earlier entry's translation is starved.
+func oldestUnclaimedFlushIndex(in queue: [PendingFlush]) -> Int? {
+    queue.firstIndex(where: { $0.entryID == nil })
 }
