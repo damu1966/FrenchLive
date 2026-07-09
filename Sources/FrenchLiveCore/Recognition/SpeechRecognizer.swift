@@ -11,9 +11,17 @@ final class SpeechRecognizer {
     private var silenceWorkItem: DispatchWorkItem?
     // 3 s lets conversational turn-taking finish naturally before forcing a cut.
     private static let silenceTimeout: TimeInterval = 3.0
-    // Push a translation every N words instead of waiting out a full silence,
-    // so long monologues start showing English quickly.
+    // Minimum word count before an early cut is even considered — below this,
+    // a sentence always waits out the full silenceTimeout regardless of
+    // punctuation, since a 1-2 word fragment isn't worth flushing early.
     private static let wordFlushThreshold = 6
+    // Once wordFlushThreshold is reached, only cut early if the recognizer has
+    // already marked the text as a complete sentence (see endsAtSentenceBoundary);
+    // otherwise the sentence keeps running so a long thought isn't chopped
+    // mid-clause. wordFlushHardCap is the absolute backstop: past this many
+    // words we cut regardless of punctuation, so an uninterrupted monologue
+    // still can't delay translation indefinitely.
+    private static let wordFlushHardCap = 15
     // Short grace period so the Nth word is fully confirmed before we cut.
     private static let wordFlushDelay: TimeInterval = 0.15
 
@@ -75,6 +83,9 @@ final class SpeechRecognizer {
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
+        // Needed so endsAtSentenceBoundary can detect a complete sentence —
+        // without this, the recognizer may not add terminal punctuation at all.
+        req.addsPunctuation = true
 
         // Swap to new request first so appendBuffer never sees nil between segments.
         let oldRequest = self.request
@@ -112,8 +123,11 @@ final class SpeechRecognizer {
                     }
                     self.onPartialResult?(text)
                     let wordCount = text.split(separator: " ").count
-                    if wordCount >= Self.wordFlushThreshold {
-                        self.scheduleFlush(text: text, after: Self.wordFlushDelay, reason: "wordThreshold")
+                    let atSentenceEnd = Self.endsAtSentenceBoundary(text)
+                    if wordCount >= Self.wordFlushHardCap {
+                        self.scheduleFlush(text: text, after: Self.wordFlushDelay, reason: "hardCap")
+                    } else if wordCount >= Self.wordFlushThreshold && atSentenceEnd {
+                        self.scheduleFlush(text: text, after: Self.wordFlushDelay, reason: "sentenceEnd")
                     } else {
                         self.scheduleFlush(text: text, after: Self.silenceTimeout, reason: "silence")
                     }
@@ -157,6 +171,14 @@ final class SpeechRecognizer {
 
         // End old request after new task is already receiving audio.
         oldRequest?.endAudio()
+    }
+
+    // True once the recognizer's own punctuation (req.addsPunctuation) marks
+    // the text as a complete sentence — used to let a partial run past
+    // wordFlushThreshold instead of being cut mid-clause.
+    private static func endsAtSentenceBoundary(_ text: String) -> Bool {
+        guard let last = text.trimmingCharacters(in: .whitespaces).last else { return false }
+        return ".!?".contains(last)
     }
 
     // MARK: - Result emission
